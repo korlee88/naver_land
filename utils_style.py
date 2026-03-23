@@ -27,13 +27,39 @@ def inject_korean_font():
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
 <style>
-/* ── 사이드바 접기 버튼(keyboard_double) 숨기기 ── */
+/* ── 사이드바 접기/펼치기 버튼 완전 숨김 ── */
 [data-testid="stBaseButton-headerNoPadding"],
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"],
 button[aria-label="keyboard_double_arrow_left"],
 button[aria-label="keyboard_double_arrow_right"],
-[kind="headerNoPadding"] { display: none !important; }
+button[aria-label="Collapse sidebar"],
+button[aria-label="Expand sidebar"],
+[kind="headerNoPadding"],
+.st-emotion-cache-h4xjwg,
+header[data-testid="stHeader"] button { display: none !important; }
+
+/* ── Material Icons 폰트 미로드 시 아이콘 텍스트 겹침 방지 ── */
+.material-icons {
+    font-family: 'Material Icons' !important;
+    font-size: 18px;
+    line-height: 1;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    width: 18px;
+    display: inline-block;
+}
+/* expander 화살표 아이콘 영역 고정 */
+[data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"],
+[data-testid="stExpander"] summary svg {
+    min-width: 20px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
 
 /* ── 전체 기본 폰트 ── */
 html, body, [class*="css"] {
