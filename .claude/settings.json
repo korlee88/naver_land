@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//g/임시/app/Test20260305/**)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ]
+  }
+}
