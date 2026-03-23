@@ -30,27 +30,28 @@ def inject_korean_font():
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
 <style>
-/* ── keyboard_double 텍스트 글자 숨기고 ≡ 아이콘으로 교체 ── */
-[data-testid="stSidebarCollapsedControl"] button span,
-[data-testid="stSidebarCollapsedControl"] button .material-icons {
-    display: none !important;
+/* ── 사이드바 열기/닫기 버튼: 텍스트 숨기고 아이콘으로 교체 ── */
+button[aria-label="keyboard_double_arrow_right"] span,
+button[aria-label="keyboard_double_arrow_left"] span,
+button[aria-label="keyboard_double_arrow_right"] .material-icons,
+button[aria-label="keyboard_double_arrow_left"] .material-icons {
+    font-size: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    display: inline-block !important;
 }
-[data-testid="stSidebarCollapsedControl"] button::after {
-    content: "≡" !important;
-    font-size: 22px !important;
-    color: #1e293b !important;
+button[aria-label="keyboard_double_arrow_right"]::before {
+    content: "☰" !important;
+    font-size: 20px !important;
+    color: #475569 !important;
     font-family: sans-serif !important;
-    display: block !important;
-    line-height: 1 !important;
+    font-style: normal !important;
 }
-[data-testid="stSidebarCollapsedControl"] button {
-    background: #f1f5f9 !important;
-    border-radius: 0 8px 8px 0 !important;
-    border: 1px solid #e2e8f0 !important;
-    min-width: 32px !important;
-    height: 40px !important;
-    padding: 0 6px !important;
-    cursor: pointer !important;
+button[aria-label="keyboard_double_arrow_left"]::before {
+    content: "✕" !important;
+    font-size: 16px !important;
+    color: #475569 !important;
+    font-family: sans-serif !important;
 }
 
 /* ── expander 아이콘 텍스트(arrow_drop_down) 겹침 방지 ── */
