@@ -8,21 +8,12 @@ import streamlit as st
 
 from db import init_db, upsert_listing_and_history
 from utils_uid import make_uid
+from utils_style import inject_korean_font
 
 # ── 초기화 ──────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="매물 입력", layout="wide")
 init_db()
-
-# ── 한글 웹폰트 (Railway/Linux 한글 깨짐 방지) ─────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700;800&display=swap');
-html, body, [class*="css"], .stMarkdown, .stText, .stMetric,
-div, span, p, h1, h2, h3, label, button, input, textarea, select {
-    font-family: 'Nanum Gothic', 'Malgun Gothic', '맑은 고딕', sans-serif !important;
-}
-</style>
-""", unsafe_allow_html=True)
+inject_korean_font()
 
 # ── 구글시트 설정 ─────────────────────────────────────────────────────────
 GAS_URL        = "https://script.google.com/macros/s/AKfycbwLB0tecqN_hOgzEqo8jS9OH13llHeraXDQ7G_CZ60XDvBFmDv6sX1luG6kY5m0Z1_uug/exec"

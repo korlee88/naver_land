@@ -15,16 +15,9 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import plotly.express as px
-import plotly.io as pio
 
 import db
-
-# ── Plotly 전역 한글 폰트 (Railway/Linux 깨짐 방지) ────────────────────────
-pio.templates["korean"] = pio.templates["plotly_white"]
-pio.templates["korean"].layout.font = dict(
-    family="Nanum Gothic, Malgun Gothic, 맑은 고딕, sans-serif"
-)
-pio.templates.default = "korean"
+from utils_style import inject_korean_font
 
 # ══════════════════════════════════════════════
 # 페이지 설정
@@ -35,6 +28,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+inject_korean_font()   # ← 한글 폰트 (Railway/Linux 깨짐 방지)
 
 matplotlib.rcParams["font.family"]        = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False

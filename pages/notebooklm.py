@@ -19,6 +19,9 @@ import db
 
 st.set_page_config(page_title="NotebookLM 내보내기", layout="wide")
 
+from utils_style import inject_korean_font
+inject_korean_font()
+
 # ══════════════════════════════════════════════
 # 상수
 # ══════════════════════════════════════════════

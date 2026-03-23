@@ -4,6 +4,10 @@ import pandas as pd
 from db import read_history, read_listings, delete_history_by_ids
 
 st.set_page_config(page_title="RAW 관리", layout="wide")
+
+from utils_style import inject_korean_font
+inject_korean_font()
+
 st.title("🧹 RAW 데이터 관리")
 
 # ── 데이터 로드 (price_history + listings 조인) ──

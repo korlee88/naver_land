@@ -2,8 +2,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from utils_style import inject_korean_font
 
 st.set_page_config(page_title="보금자리론 대출 정보", layout="wide")
+inject_korean_font()
 
 # ── 공통 CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
