@@ -30,17 +30,12 @@ def inject_korean_font():
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
 <style>
-/* ── 사이드바 접기/펼치기 버튼 완전 숨김 ── */
+/* ── keyboard_double 버튼만 숨김 (모바일 사이드바 열기 버튼은 유지) ── */
 [data-testid="stBaseButton-headerNoPadding"],
-[data-testid="stSidebarCollapseButton"],
-[data-testid="stSidebarCollapsedControl"],
 button[aria-label="keyboard_double_arrow_left"],
 button[aria-label="keyboard_double_arrow_right"],
-button[aria-label="Collapse sidebar"],
-button[aria-label="Expand sidebar"],
 [kind="headerNoPadding"],
-.st-emotion-cache-h4xjwg,
-header[data-testid="stHeader"] button { display: none !important; }
+.st-emotion-cache-h4xjwg { display: none !important; }
 
 /* ── expander 아이콘 텍스트(arrow_drop_down) 겹침 방지 ── */
 [data-testid="stExpander"] summary .material-icons,

@@ -358,25 +358,12 @@ with st.sidebar:
     if df_all.empty:
         st.error("데이터 없음"); st.stop()
 
-    # "(" 앞 이름을 단지명으로 그룹화 (예: 더샵지제역센트럴파크(1BL) → 더샵지제역센트럴파크)
-    def _group_key(name):
-        s = str(name).strip()
-        m = re.match(r'^(.+?)[\s]*[\(\[]', s)
-        return m.group(1).strip() if m else s
-
-    all_names   = sorted(df_all["complex_name"].unique().tolist())
-    group_map   = {}  # 대표명(단지명) → [실제 이름들]
-    for n in all_names:
-        key = _group_key(n)
-        group_map.setdefault(key, []).append(n)
-    group_labels = sorted(group_map.keys())
-
+    complex_list = sorted(df_all["complex_name"].unique().tolist())
     sel_groups = st.multiselect(
-        "단지 선택 (최대 4개 권장)", group_labels,
-        default=group_labels[:min(3, len(group_labels))],
+        "단지 선택 (최대 4개 권장)", complex_list,
+        default=complex_list[:min(3, len(complex_list))],
     )
-    # 선택된 그룹에 속하는 실제 이름 전부 포함
-    sel = [n for g in sel_groups for n in group_map.get(g, [g])]
+    sel = sel_groups
 
     st.markdown("**가격 범위 (억)**")
     p_lo, p_hi = float(df_all["eok"].min()), float(df_all["eok"].max())
@@ -392,12 +379,10 @@ with st.sidebar:
 # ══════════════════════════════════════════════
 # 필터 적용
 # ══════════════════════════════════════════════
-if not sel_groups:
+if not sel:
     st.warning("왼쪽에서 단지를 선택해 주세요."); st.stop()
 
 df = df_all[df_all["complex_name"].isin(sel)].copy()
-# "(1BL)" 등 제거해서 단지명으로 표시
-df["complex_name"] = df["complex_name"].apply(_group_key)
 df = df[(df["eok"] >= price_sel[0]) & (df["eok"] <= price_sel[1])]
 if df.empty:
     st.warning("조건에 맞는 데이터가 없습니다."); st.stop()
@@ -427,7 +412,7 @@ with col_info:
 st.markdown('<div class="sec">📊 차트</div>', unsafe_allow_html=True)
 
 COLORS = ["#3b82f6","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4"]
-trend_names = sel_groups[:4]
+trend_names = sel[:4]
 n_charts    = len(trend_names)
 
 chart_cols = st.columns(n_charts, gap="small")
@@ -475,10 +460,10 @@ for idx, cname in enumerate(trend_names):
 
     fig.update_layout(
         title=dict(text=cname, font=dict(size=11), x=0, xanchor="left"),
-        height=260,
-        margin=dict(l=40, r=20, t=55, b=40),
+        height=270,
+        margin=dict(l=40, r=20, t=30, b=60),
         plot_bgcolor="white",
-        legend=dict(orientation="h", y=1.28, x=0, font=dict(size=9)),
+        legend=dict(orientation="h", y=-0.28, x=0, font=dict(size=9)),
         xaxis=dict(tickfont=dict(size=8), tickangle=30),
         yaxis=dict(
             title="가격(억)", tickfont=dict(size=8),
@@ -500,7 +485,7 @@ st.caption(f"기준: 최신 업로드일({_latest_label}) 매물만 대상 | 가
 
 parts = [
     compute_score(df[df["complex_name"] == cn])
-    for cn in sel_groups
+    for cn in sel
     if not df[df["complex_name"] == cn].empty
 ]
 
