@@ -185,7 +185,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── 중도상환수수료 계산기 ────────────────────────────────────────────────
-st.markdown('<div class="sec">🧮 중도상환수수료 간이 계산기</div>', unsafe_allow_html=True)
+st.markdown("#### 🧮 중도상환수수료 간이 계산기")
 
 c_left, c_right = st.columns(2)
 with c_left:
