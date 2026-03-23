@@ -71,6 +71,13 @@ header[data-testid="stHeader"] button { display: none !important; }
     flex-shrink: 0;
 }
 
+/* ── 메인 컨텐츠 전체 너비 사용 ── */
+.block-container {
+    max-width: 100% !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+}
+
 /* ── 전체 기본 폰트 ── */
 html, body, [class*="css"] {
     font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif !important;
