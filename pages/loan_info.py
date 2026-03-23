@@ -185,18 +185,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── 중도상환수수료 계산기 ────────────────────────────────────────────────
-st.write("")
-with st.expander("🧮 중도상환수수료 간이 계산기"):
-    c_left, c_right = st.columns(2)
-    with c_left:
-        loan_amt = st.number_input("대출 잔액 (만원)", value=22700, step=100)
-    with c_right:
-        hold_yr = st.slider("보유 기간 (년)", 0, 5, 2)
+st.markdown('<div class="sec">🧮 중도상환수수료 간이 계산기</div>', unsafe_allow_html=True)
 
-    st.divider()
-    if hold_yr < 3:
-        rate = 0.005 * (3 - hold_yr) / 3
-        fee  = int(loan_amt * 10000 * rate)
-        st.error(f"⚠️ 예상 수수료: **{fee:,}원** (약 {fee/10000:.0f}만원) — {hold_yr}년 보유 기준")
-    else:
-        st.success("✅ 3년 이상 보유 시 중도상환수수료 없음")
+c_left, c_right = st.columns(2)
+with c_left:
+    loan_amt = st.number_input("대출 잔액 (만원)", value=22700, step=100)
+with c_right:
+    hold_yr = st.slider("보유 기간 (년)", 0, 5, 2)
+
+if hold_yr < 3:
+    rate = 0.005 * (3 - hold_yr) / 3
+    fee  = int(loan_amt * 10000 * rate)
+    st.error(f"⚠️ 예상 수수료: **{fee:,}원** (약 {fee/10000:.0f}만원) — {hold_yr}년 보유 기준")
+else:
+    st.success("✅ 3년 이상 보유 시 중도상환수수료 없음")
