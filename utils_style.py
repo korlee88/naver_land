@@ -42,6 +42,16 @@ button[aria-label="Expand sidebar"],
 .st-emotion-cache-h4xjwg,
 header[data-testid="stHeader"] button { display: none !important; }
 
+/* ── expander 아이콘 텍스트(arrow_drop_down) 겹침 방지 ── */
+[data-testid="stExpander"] summary .material-icons,
+[data-testid="stExpander"] summary span[class*="material"],
+[data-testid="stExpander"] details summary > span:first-child {
+    font-size: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    display: none !important;
+}
+
 /* ── Material Icons 폰트 미로드 시 아이콘 텍스트 겹침 방지 ── */
 .material-icons {
     font-family: 'Material Icons' !important;

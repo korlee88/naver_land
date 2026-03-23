@@ -10,6 +10,15 @@ inject_korean_font()
 # ── 공통 CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+/* expander 아이콘(arrow_drop_down 텍스트) 숨기기 */
+[data-testid="stExpander"] summary .material-icons,
+[data-testid="stExpander"] summary span[class*="material"],
+[data-testid="stExpander"] details summary > span:first-child {
+    font-size: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    display: none !important;
+}
 /* keyboard_double 버튼 숨기기 */
 [data-testid="stBaseButton-headerNoPadding"],
 button[aria-label="keyboard_double_arrow_left"],
