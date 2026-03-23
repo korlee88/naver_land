@@ -358,30 +358,44 @@ with st.sidebar:
     if df_all.empty:
         st.error("데이터 없음"); st.stop()
 
-    # 아파트 이름 기준 단지 목록 (괄호 전 이름으로 그룹 표시)
-    complex_list = sorted(df_all["complex_name"].unique().tolist())
-    sel = st.multiselect(
-        "단지 선택 (최대 4개 권장)", complex_list,
-        default=complex_list[:min(3, len(complex_list))],
+    # 앞 5글자 동일 → 같은 단지로 그룹화
+    def _group_key(name): return str(name)[:5]
+    all_names   = sorted(df_all["complex_name"].unique().tolist())
+    group_map   = {}  # 대표명 → [실제 이름들]
+    for n in all_names:
+        key = _group_key(n)
+        rep = next((r for r in group_map if _group_key(r) == key), n)
+        group_map.setdefault(rep, []).append(n)
+    group_labels = sorted(group_map.keys())
+
+    sel_groups = st.multiselect(
+        "단지 선택 (최대 4개 권장)", group_labels,
+        default=group_labels[:min(3, len(group_labels))],
     )
+    # 선택된 그룹에 속하는 실제 이름 전부 포함
+    sel = [n for g in sel_groups for n in group_map.get(g, [g])]
 
     st.markdown("**가격 범위 (억)**")
     p_lo, p_hi = float(df_all["eok"].min()), float(df_all["eok"].max())
     price_sel = st.slider("가격", p_lo, p_hi, (p_lo, p_hi),
                           step=0.1, format="%.1f억", label_visibility="collapsed")
 
-    st.markdown("**급매 임계값 (억)**")
+    st.markdown("**급매 감지 기준 (억)**")
     drop_th_sel = st.slider("급매 기준", 0.05, 0.5, DROP_TH,
                             step=0.05, format="%.2f억", label_visibility="collapsed")
+    st.caption(f"차트에서 최저가가 7일 평균 대비 {drop_th_sel:.2f}억 이상 하락하면 ▼급락 표시")
 
 
 # ══════════════════════════════════════════════
 # 필터 적용
 # ══════════════════════════════════════════════
-if not sel:
+if not sel_groups:
     st.warning("왼쪽에서 단지를 선택해 주세요."); st.stop()
 
 df = df_all[df_all["complex_name"].isin(sel)].copy()
+# 그룹 대표명으로 표시 (앞 5글자 같은 것들 → 대표명 사용)
+name_to_rep = {n: g for g, names in group_map.items() for n in names}
+df["complex_name"] = df["complex_name"].map(name_to_rep).fillna(df["complex_name"])
 df = df[(df["eok"] >= price_sel[0]) & (df["eok"] <= price_sel[1])]
 if df.empty:
     st.warning("조건에 맞는 데이터가 없습니다."); st.stop()
@@ -411,7 +425,7 @@ with col_info:
 st.markdown('<div class="sec">📊 차트</div>', unsafe_allow_html=True)
 
 COLORS = ["#3b82f6","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4"]
-trend_names = sel[:4]
+trend_names = sel_groups[:4]
 n_charts    = len(trend_names)
 
 chart_cols = st.columns(n_charts, gap="small")
@@ -457,14 +471,22 @@ for idx, cname in enumerate(trend_names):
             marker=dict(symbol="triangle-down", size=8, color="#ef4444"),
         ))
 
+    y_min = d2["min_eok"].min()
+    y_max = d2["max_eok"].max()
+    tick0 = round(y_min * 2) / 2  # 0.5억 단위 반올림
     fig.update_layout(
         title=dict(text=cname, font=dict(size=12)),
-        height=220,
-        margin=dict(l=0, r=0, t=30, b=0),
+        height=260,
+        margin=dict(l=0, r=0, t=40, b=30),
         plot_bgcolor="white",
-        legend=dict(orientation="h", y=1.15, x=0, font=dict(size=9)),
+        legend=dict(orientation="h", y=1.18, x=0, font=dict(size=9)),
         xaxis=dict(tickfont=dict(size=8), tickangle=30),
-        yaxis=dict(title="가격(억)", tickfont=dict(size=8), showgrid=True, gridcolor="#f1f5f9"),
+        yaxis=dict(
+            title="가격(억)", tickfont=dict(size=8),
+            showgrid=True, gridcolor="#f1f5f9",
+            dtick=0.5,  # 5000만원(0.5억) 단위
+            tickformat=".1f",
+        ),
         yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False),
     )
     chart_cols[idx].plotly_chart(fig, use_container_width=True)
@@ -479,7 +501,7 @@ st.caption(f"기준: 최신 업로드일({_latest_label}) 매물만 대상 | 가
 
 parts = [
     compute_score(df[df["complex_name"] == cn])
-    for cn in sel
+    for cn in sel_groups
     if not df[df["complex_name"] == cn].empty
 ]
 

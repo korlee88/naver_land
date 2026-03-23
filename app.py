@@ -18,12 +18,13 @@ pg = st.navigation([
 ], position="hidden")
 
 with st.sidebar:
-    st.page_link("pages/graph_v2.py",    label="매물 분석",   icon="📊")
-    st.page_link("rawdata.py",           label="매물 입력",   icon="📝")
-    st.page_link("pages/raw_manage.py",  label="RAW 관리",    icon="🧹")
-    st.page_link("pages/policy_news.py", label="부동산 뉴스", icon="📰")
-    st.page_link("pages/loan_info.py",   label="보금자리론",  icon="🏦")
-    st.page_link("pages/notebooklm.py",  label="NotebookLM", icon="🤖")
+    st.markdown("**Menu**")
+    st.page_link("pages/graph_v2.py",    label="매물 분석 대시보드", icon="📊")
+    st.page_link("rawdata.py",           label="매물 데이터 입력",   icon="📝")
+    st.page_link("pages/raw_manage.py",  label="데이터 관리",        icon="🗂️")
+    st.page_link("pages/policy_news.py", label="부동산 뉴스",        icon="📰")
+    st.page_link("pages/loan_info.py",   label="보금자리론 정보",    icon="🏦")
+    st.page_link("pages/notebooklm.py",  label="AI 분석 내보내기",   icon="🤖")
     st.divider()
 
 pg.run()
