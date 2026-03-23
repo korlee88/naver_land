@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 import plotly.express as px
 
@@ -29,10 +28,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-inject_korean_font()   # ← 한글 폰트 (Railway/Linux 깨짐 방지)
+inject_korean_font()   # ← 한글 폰트 (Railway/Linux 깨짐 방지, matplotlib 포함)
 
-matplotlib.rcParams["font.family"]        = "Malgun Gothic"
-matplotlib.rcParams["axes.unicode_minus"] = False
 plt.rcParams.update({"font.size": 7, "axes.titlesize": 8})
 
 st.markdown("""
