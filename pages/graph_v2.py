@@ -358,14 +358,17 @@ with st.sidebar:
     if df_all.empty:
         st.error("데이터 없음"); st.stop()
 
-    # 앞 5글자 동일 → 같은 단지로 그룹화
-    def _group_key(name): return str(name)[:5]
+    # "(" 앞 이름을 단지명으로 그룹화 (예: 더샵지제역센트럴파크(1BL) → 더샵지제역센트럴파크)
+    def _group_key(name):
+        s = str(name).strip()
+        m = re.match(r'^(.+?)[\s]*[\(\[]', s)
+        return m.group(1).strip() if m else s
+
     all_names   = sorted(df_all["complex_name"].unique().tolist())
-    group_map   = {}  # 대표명 → [실제 이름들]
+    group_map   = {}  # 대표명(단지명) → [실제 이름들]
     for n in all_names:
         key = _group_key(n)
-        rep = next((r for r in group_map if _group_key(r) == key), n)
-        group_map.setdefault(rep, []).append(n)
+        group_map.setdefault(key, []).append(n)
     group_labels = sorted(group_map.keys())
 
     sel_groups = st.multiselect(
@@ -393,9 +396,8 @@ if not sel_groups:
     st.warning("왼쪽에서 단지를 선택해 주세요."); st.stop()
 
 df = df_all[df_all["complex_name"].isin(sel)].copy()
-# 그룹 대표명으로 표시 (앞 5글자 같은 것들 → 대표명 사용)
-name_to_rep = {n: g for g, names in group_map.items() for n in names}
-df["complex_name"] = df["complex_name"].map(name_to_rep).fillna(df["complex_name"])
+# "(1BL)" 등 제거해서 단지명으로 표시
+df["complex_name"] = df["complex_name"].apply(_group_key)
 df = df[(df["eok"] >= price_sel[0]) & (df["eok"] <= price_sel[1])]
 if df.empty:
     st.warning("조건에 맞는 데이터가 없습니다."); st.stop()
@@ -471,20 +473,17 @@ for idx, cname in enumerate(trend_names):
             marker=dict(symbol="triangle-down", size=8, color="#ef4444"),
         ))
 
-    y_min = d2["min_eok"].min()
-    y_max = d2["max_eok"].max()
-    tick0 = round(y_min * 2) / 2  # 0.5억 단위 반올림
     fig.update_layout(
-        title=dict(text=cname, font=dict(size=12)),
+        title=dict(text=cname, font=dict(size=11), x=0, xanchor="left"),
         height=260,
-        margin=dict(l=0, r=0, t=40, b=30),
+        margin=dict(l=40, r=20, t=55, b=40),
         plot_bgcolor="white",
-        legend=dict(orientation="h", y=1.18, x=0, font=dict(size=9)),
+        legend=dict(orientation="h", y=1.28, x=0, font=dict(size=9)),
         xaxis=dict(tickfont=dict(size=8), tickangle=30),
         yaxis=dict(
             title="가격(억)", tickfont=dict(size=8),
             showgrid=True, gridcolor="#f1f5f9",
-            dtick=0.5,  # 5000만원(0.5억) 단위
+            dtick=0.5,
             tickformat=".1f",
         ),
         yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False),
