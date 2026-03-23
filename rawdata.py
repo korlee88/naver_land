@@ -9,11 +9,13 @@ import streamlit as st
 from db import init_db, upsert_listing_and_history
 from utils_uid import make_uid
 from utils_style import inject_korean_font
+from utils_auth import require_auth
 
 # ── 초기화 ──────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="매물 입력", layout="wide")
 init_db()
 inject_korean_font()
+require_auth()
 
 # ── 구글시트 설정 ─────────────────────────────────────────────────────────
 GAS_URL        = "https://script.google.com/macros/s/AKfycbwLB0tecqN_hOgzEqo8jS9OH13llHeraXDQ7G_CZ60XDvBFmDv6sX1luG6kY5m0Z1_uug/exec"

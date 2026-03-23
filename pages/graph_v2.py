@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 
 import db
 from utils_style import inject_korean_font
+from utils_auth import require_auth
 
 # ══════════════════════════════════════════════
 # 페이지 설정
@@ -29,7 +30,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-inject_korean_font()   # ← 한글 폰트 (Railway/Linux 깨짐 방지, matplotlib 포함)
+inject_korean_font()
+require_auth()
 
 plt.rcParams.update({"font.size": 7, "axes.titlesize": 8})
 

@@ -6,7 +6,9 @@ from db import read_history, read_listings, delete_history_by_ids
 st.set_page_config(page_title="RAW 관리", layout="wide")
 
 from utils_style import inject_korean_font
+from utils_auth import require_auth
 inject_korean_font()
+require_auth()
 
 st.title("🧹 RAW 데이터 관리")
 
