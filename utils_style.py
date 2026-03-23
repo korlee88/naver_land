@@ -30,9 +30,28 @@ def inject_korean_font():
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
 <style>
-/* ── keyboard_double 버튼만 숨김 (모바일 햄버거/사이드바 버튼은 유지) ── */
-button[aria-label="keyboard_double_arrow_left"],
-button[aria-label="keyboard_double_arrow_right"] { display: none !important; }
+/* ── keyboard_double 텍스트 글자 숨기고 ≡ 아이콘으로 교체 ── */
+[data-testid="stSidebarCollapsedControl"] button span,
+[data-testid="stSidebarCollapsedControl"] button .material-icons {
+    display: none !important;
+}
+[data-testid="stSidebarCollapsedControl"] button::after {
+    content: "≡" !important;
+    font-size: 22px !important;
+    color: #1e293b !important;
+    font-family: sans-serif !important;
+    display: block !important;
+    line-height: 1 !important;
+}
+[data-testid="stSidebarCollapsedControl"] button {
+    background: #f1f5f9 !important;
+    border-radius: 0 8px 8px 0 !important;
+    border: 1px solid #e2e8f0 !important;
+    min-width: 32px !important;
+    height: 40px !important;
+    padding: 0 6px !important;
+    cursor: pointer !important;
+}
 
 /* ── expander 아이콘 텍스트(arrow_drop_down) 겹침 방지 ── */
 [data-testid="stExpander"] summary .material-icons,
