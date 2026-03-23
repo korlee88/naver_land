@@ -10,6 +10,12 @@ inject_korean_font()
 # ── 공통 CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
+/* keyboard_double 버튼 숨기기 */
+[data-testid="stBaseButton-headerNoPadding"],
+button[aria-label="keyboard_double_arrow_left"],
+button[aria-label="keyboard_double_arrow_right"],
+[kind="headerNoPadding"] { display: none !important; }
+
 .sec {
     font-size: 15px; font-weight: 700; color: #1e293b;
     border-left: 4px solid #6366f1; padding-left: 8px;
@@ -172,11 +178,15 @@ st.markdown("""
 # ── 중도상환수수료 계산기 ────────────────────────────────────────────────
 st.write("")
 with st.expander("🧮 중도상환수수료 간이 계산기"):
-    loan_amt = st.number_input("대출 잔액 (만원)", value=22700, step=100)
-    hold_yr  = st.slider("보유 기간 (년)", 0, 5, 2)
+    c_left, c_right = st.columns(2)
+    with c_left:
+        loan_amt = st.number_input("대출 잔액 (만원)", value=22700, step=100)
+    with c_right:
+        hold_yr = st.slider("보유 기간 (년)", 0, 5, 2)
 
+    st.divider()
     if hold_yr < 3:
-        rate = 0.005 * (3 - hold_yr) / 3   # 잔여기간 비례 감소 (단순 근사)
+        rate = 0.005 * (3 - hold_yr) / 3
         fee  = int(loan_amt * 10000 * rate)
         st.error(f"⚠️ 예상 수수료: **{fee:,}원** (약 {fee/10000:.0f}만원) — {hold_yr}년 보유 기준")
     else:
