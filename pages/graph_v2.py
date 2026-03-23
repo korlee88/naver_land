@@ -20,16 +20,6 @@ import db
 from utils_style import inject_korean_font
 from utils_auth import require_auth
 
-# ══════════════════════════════════════════════
-# 페이지 설정
-# ══════════════════════════════════════════════
-st.set_page_config(
-    page_title="매물 분석 v2",
-    page_icon="🏢",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
 inject_korean_font()
 require_auth()
 

@@ -17,8 +17,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import db
 
-st.set_page_config(page_title="NotebookLM 내보내기", layout="wide")
-
 from utils_style import inject_korean_font
 from utils_auth import require_auth
 inject_korean_font()

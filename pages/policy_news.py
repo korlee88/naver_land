@@ -16,8 +16,6 @@ from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 from email.utils import parsedate_to_datetime
 
-st.set_page_config(page_title="평택·안성 부동산 뉴스", layout="wide")
-
 from utils_style import inject_korean_font
 from utils_auth import require_auth
 inject_korean_font()

@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from utils_style import inject_korean_font
 from utils_auth import require_auth
 
-st.set_page_config(page_title="보금자리론 대출 정보", layout="wide")
 inject_korean_font()
 require_auth()
 

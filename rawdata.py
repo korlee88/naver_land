@@ -12,7 +12,6 @@ from utils_style import inject_korean_font
 from utils_auth import require_auth
 
 # ── 초기화 ──────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="매물 입력", layout="wide")
 init_db()
 inject_korean_font()
 require_auth()
