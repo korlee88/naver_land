@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
+import plotly.graph_objects as go
 
 import db
 from utils_style import inject_korean_font
@@ -417,25 +418,64 @@ with col_info:
 # ══════════════════════════════════════════════
 st.markdown('<div class="sec">📊 차트</div>', unsafe_allow_html=True)
 
-cmap = plt.get_cmap("tab10")
+COLORS = ["#3b82f6","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4"]
 trend_names = sel[:4]
-n_charts = len(trend_names)
+n_charts    = len(trend_names)
 
-# 단지 수만큼 컬럼 생성 (최대 4)
 chart_cols = st.columns(n_charts, gap="small")
 
 for idx, cname in enumerate(trend_names):
     dfc   = df[df["complex_name"] == cname]
-    color = cmap(idx % 10)
-    fig, ax = plt.subplots(figsize=(3.2, 1.9), dpi=120)
+    color = COLORS[idx % len(COLORS)]
+
     if dfc.empty:
-        ax.set_title(cname + " (데이터 없음)", fontsize=7)
-    else:
-        draw_trend_ax(ax, dfc, cname, color, drop_th_sel)
-    fig.autofmt_xdate(rotation=30)
-    fig.tight_layout(pad=0.5)
-    chart_cols[idx].pyplot(fig, use_container_width=True)
-    plt.close(fig)
+        chart_cols[idx].caption(f"{cname} — 데이터 없음")
+        continue
+
+    d2   = make_daily(dfc, drop_th_sel)
+    x    = d2["uploadday"]
+    mask = x.notna() & d2["min_eok"].notna()
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+
+    # 건수 바 (보조 y축)
+    fig.add_trace(go.Bar(
+        x=x, y=d2["n"],
+        name="건수", yaxis="y2",
+        marker_color="#e2e8f0", opacity=0.5,
+        showlegend=False,
+    ))
+    # 최저가 선
+    fig.add_trace(go.Scatter(
+        x=x[mask], y=d2["min_eok"][mask],
+        name="최저", line=dict(color=color, width=1.5, dash="dash"),
+    ))
+    # 최고가 선
+    fig.add_trace(go.Scatter(
+        x=x[mask], y=d2["max_eok"][mask],
+        name="최고", line=dict(color=color, width=1.0), opacity=0.6,
+    ))
+    # 급락 마커
+    drops = d2[d2["is_drop"]]
+    if not drops.empty:
+        fig.add_trace(go.Scatter(
+            x=drops["uploadday"], y=drops["min_eok"],
+            mode="markers", name="▼급락",
+            marker=dict(symbol="triangle-down", size=8, color="#ef4444"),
+        ))
+
+    fig.update_layout(
+        title=dict(text=cname, font=dict(size=12)),
+        height=220,
+        margin=dict(l=0, r=0, t=30, b=0),
+        plot_bgcolor="white",
+        legend=dict(orientation="h", y=1.15, x=0, font=dict(size=9)),
+        xaxis=dict(tickfont=dict(size=8), tickangle=30),
+        yaxis=dict(title="가격(억)", tickfont=dict(size=8), showgrid=True, gridcolor="#f1f5f9"),
+        yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False),
+    )
+    chart_cols[idx].plotly_chart(fig, use_container_width=True)
 
 
 # ══════════════════════════════════════════════
