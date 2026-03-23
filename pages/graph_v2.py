@@ -15,8 +15,16 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import plotly.express as px
+import plotly.io as pio
 
 import db
+
+# ── Plotly 전역 한글 폰트 (Railway/Linux 깨짐 방지) ────────────────────────
+pio.templates["korean"] = pio.templates["plotly_white"]
+pio.templates["korean"].layout.font = dict(
+    family="Nanum Gothic, Malgun Gothic, 맑은 고딕, sans-serif"
+)
+pio.templates.default = "korean"
 
 # ══════════════════════════════════════════════
 # 페이지 설정
