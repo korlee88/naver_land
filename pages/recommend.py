@@ -2,10 +2,12 @@
 recommend.py  ─  핵심 추천 매물 (사용자 정의 점수 기준)
 """
 
+import os
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta
 
+import requests
 import streamlit as st
 import pandas as pd
 
@@ -51,6 +53,8 @@ DEFAULT_PARAMS = {
     "memo_urgent":     5,
     "memo_south":      5,
     "memo_defect":   -10,
+    "choguma_score":  15,   # 초품아 점수
+    "choguma_radius": 200,  # 반경(m)
 }
 
 # ── 세션 초기화 ───────────────────────────────
@@ -73,9 +77,43 @@ if "show_results" not in st.session_state:
 
 
 # ══════════════════════════════════════════════
+# 초품아 체크 (Kakao Local API)
+# ══════════════════════════════════════════════
+@st.cache_data(show_spinner=False, ttl=86400)
+def _check_choguma(complex_name: str, kakao_key: str, radius: int) -> tuple:
+    """반환: (is_choguma: bool, school_info: str)"""
+    if not kakao_key:
+        return False, "API 키 없음"
+    headers = {"Authorization": f"KakaoAK {kakao_key}"}
+    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+    try:
+        # 1) 단지 좌표 검색
+        r1 = requests.get(url, headers=headers,
+                          params={"query": complex_name, "size": 1}, timeout=5)
+        docs = r1.json().get("documents", [])
+        if not docs:
+            return False, "단지 위치 검색 실패"
+        lng, lat = float(docs[0]["x"]), float(docs[0]["y"])
+
+        # 2) 반경 내 초등학교 검색 (category_group_code SC4 = 학교)
+        r2 = requests.get(url, headers=headers, params={
+            "query": "초등학교", "x": lng, "y": lat,
+            "radius": radius, "size": 5, "category_group_code": "SC4",
+        }, timeout=5)
+        schools = [s for s in r2.json().get("documents", [])
+                   if "초등학교" in s.get("place_name", "")]
+        if schools:
+            info = ", ".join(f"{s['place_name']}({s.get('distance','?')}m)" for s in schools)
+            return True, info
+        return False, f"반경 {radius}m 내 초등학교 없음"
+    except Exception as e:
+        return False, f"오류: {e}"
+
+
+# ══════════════════════════════════════════════
 # 커스텀 점수 계산
 # ══════════════════════════════════════════════
-def _compute_custom(dfc, p):
+def _compute_custom(dfc, p, kakao_key=""):
     dc = dfc.copy()
 
     # 가격
@@ -161,9 +199,24 @@ def _compute_custom(dfc, p):
         return sc
     dc["score_memo"] = dc["memo"].apply(_memo) if "memo" in dc.columns else 0.0
 
+    # 초품아
+    choguma_sc = float(p.get("choguma_score", 0))
+    radius     = int(p.get("choguma_radius", 200))
+    if kakao_key and choguma_sc > 0 and "complex_name" in dc.columns:
+        cache = {}
+        def _choguma(cn):
+            if cn not in cache:
+                ok, _ = _check_choguma(cn, kakao_key, radius)
+                cache[cn] = choguma_sc if ok else 0.0
+            return cache[cn]
+        dc["score_choguma"] = dc["complex_name"].apply(_choguma)
+    else:
+        dc["score_choguma"] = 0.0
+
     dc["score"] = (
         dc["score_price"] + dc["score_drop"] + dc["score_new"] + dc["score_conf"]
         + dc["score_floor"] + dc["score_dir"] + dc["score_area"] + dc["score_memo"]
+        + dc["score_choguma"]
     ).round(1)
     return dc
 
@@ -176,6 +229,23 @@ if df_all.empty:
     st.error("데이터 없음"); st.stop()
 
 sel, price_sel, _ = render_sidebar(df_all, show_drop_th=False)
+
+# Kakao API 키 (환경변수 우선, 없으면 사이드바 입력)
+with st.sidebar:
+    st.divider()
+    st.markdown("**🗝️ Kakao API 키**")
+    _env_key = os.environ.get("KAKAO_API_KEY", "")
+    if _env_key:
+        st.caption("✅ 환경변수에서 로드됨")
+        kakao_key = _env_key
+    else:
+        kakao_key = st.text_input(
+            "REST API 키", type="password",
+            placeholder="26ff...", label_visibility="collapsed",
+            key="kakao_api_key_input",
+        )
+    if kakao_key:
+        st.caption("초품아 자동 감지 활성화")
 
 if not sel:
     st.warning("왼쪽에서 단지를 선택해 주세요."); st.stop()
@@ -242,6 +312,12 @@ with st.expander("⚙️ 점수 기준 입력", expanded=True):
         st.number_input("급매",             min_value=-50,  max_value=100,  step=5,   key="sp_memo_urgent")
         st.number_input("남향언급",         min_value=-50,  max_value=100,  step=5,   key="sp_memo_south")
         st.number_input("하자·누수(감점)",  min_value=-100, max_value=0,    step=5,   key="sp_memo_defect")
+        st.markdown("**🏫 초품아**")
+        st.number_input("초품아 점수",      min_value=0,    max_value=100,  step=5,   key="sp_choguma_score",
+                        help="Kakao API 키 필요. 반경 내 초등학교 있으면 가산")
+        st.number_input("반경(m)",          min_value=100,  max_value=1000, step=50,  key="sp_choguma_radius")
+        if not kakao_key:
+            st.caption("⚠️ API 키 없으면 0점 처리")
 
 
 # ══════════════════════════════════════════════
@@ -311,8 +387,28 @@ if st.session_state.show_confirm:
 if st.session_state.show_results and st.session_state.run_params:
     p = st.session_state.run_params
 
+    # 초품아 검사 결과 미리 표시
+    if kakao_key and p.get("choguma_score", 0) > 0:
+        with st.spinner("🏫 초품아 여부 확인 중..."):
+            choguma_info = {}
+            for cn in sel:
+                ok, info = _check_choguma(cn, kakao_key, int(p["choguma_radius"]))
+                choguma_info[cn] = (ok, info)
+        cols_ch = st.columns(len(sel))
+        for i, cn in enumerate(sel):
+            ok, info = choguma_info[cn]
+            icon = "🏫✅" if ok else "🏫❌"
+            cols_ch[i].markdown(
+                f"<div style='font-size:11px;padding:6px;background:"
+                f"{'#dcfce7' if ok else '#f1f5f9'};border-radius:6px;'>"
+                f"<b>{icon} {cn}</b><br>{info}</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        choguma_info = {}
+
     parts = [
-        _compute_custom(df[df["complex_name"] == cn].copy(), p)
+        _compute_custom(df[df["complex_name"] == cn].copy(), p, kakao_key)
         for cn in sel if not df[df["complex_name"] == cn].empty
     ]
     if not parts:
@@ -351,13 +447,18 @@ if st.session_state.show_results and st.session_state.run_params:
             if not v: return ""
             return f'<span style="color:{"#16a34a" if v>0 else "#dc2626"};font-size:9px;">{lbl}{"+" if v>0 else ""}{v:.0f}</span>'
 
+        choguma_badge = (
+            '<span class="rec-badge badge-new">🏫 초품아</span>'
+            if row.get("score_choguma", 0) > 0 else ""
+        )
         breakdown = " ".join(filter(None, [
-            _fmt(row.get("score_price",0),"가격"),
-            _fmt(row.get("score_floor",0),"층"),
-            _fmt(row.get("score_dir",  0),"방향"),
-            _fmt(row.get("score_area", 0),"평형"),
-            _fmt(row.get("score_drop", 0),"하락"),
-            _fmt(row.get("score_memo", 0),"메모"),
+            _fmt(row.get("score_price",   0),"가격"),
+            _fmt(row.get("score_floor",   0),"층"),
+            _fmt(row.get("score_dir",     0),"방향"),
+            _fmt(row.get("score_area",    0),"평형"),
+            _fmt(row.get("score_drop",    0),"하락"),
+            _fmt(row.get("score_memo",    0),"메모"),
+            _fmt(row.get("score_choguma", 0),"초품아"),
         ]))
         bar_w = max(0, min(100, int((row["score"] + 50) / 150 * 100)))
 
@@ -370,7 +471,7 @@ if st.session_state.show_results and st.session_state.run_params:
   </div>
   <div class="rec-name" style="margin-top:4px;">{row.get('complex_name','')}</div>
   <div class="rec-price">{row['eok']:.2f}억</div>
-  <div style="margin-top:4px;">{badges}</div>
+  <div style="margin-top:4px;">{badges}{choguma_badge}</div>
   <div class="rec-detail" style="margin-top:6px;">{"  ·  ".join(parts_d)}</div>
   {'<div class="rec-detail" style="color:#ef4444;">' + drop_txt + '</div>' if drop_txt else ''}
   {'<div class="rec-detail">' + date_str + '</div>' if date_str else ''}
