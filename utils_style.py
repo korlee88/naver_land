@@ -30,8 +30,11 @@ def inject_korean_font():
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
 <style>
-/* ── Material Icons 폰트 보호: 전체 폰트 override에서 제외 ── */
-[data-testid="stIconMaterial"] {
+/* ── Material Icons 폰트 보호 (사이드바 내부 포함) ── */
+[data-testid="stIconMaterial"],
+section[data-testid="stSidebar"] [data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapsedControl"] [data-testid="stIconMaterial"] {
     font-family: 'Material Icons' !important;
     font-size: 20px !important;
     font-style: normal !important;
