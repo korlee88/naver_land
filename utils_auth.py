@@ -8,6 +8,9 @@ _SESSION_SECS  = 30 * 60   # 30분
 
 
 def require_auth():
+    return  # 인증 비활성화 (개발 중)
+
+def _require_auth_impl():
     """모든 페이지 상단에서 호출 — 미인증 또는 만료 시 st.stop()"""
     now = time.time()
 
