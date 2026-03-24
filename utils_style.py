@@ -30,28 +30,26 @@ def inject_korean_font():
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 
 <style>
-/* ── 사이드바 열기/닫기 버튼: 텍스트 숨기고 아이콘으로 교체 ── */
-button[aria-label="keyboard_double_arrow_right"] span,
-button[aria-label="keyboard_double_arrow_left"] span,
-button[aria-label="keyboard_double_arrow_right"] .material-icons,
-button[aria-label="keyboard_double_arrow_left"] .material-icons {
+/* ── 사이드바 열기 버튼: SVG 배경 아이콘으로 교체 ── */
+button[aria-label="keyboard_double_arrow_right"],
+button[aria-label="keyboard_double_arrow_left"] {
+    color: transparent !important;
     font-size: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-    display: inline-block !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 22px 22px !important;
 }
-button[aria-label="keyboard_double_arrow_right"]::before {
-    content: "☰" !important;
-    font-size: 20px !important;
-    color: #475569 !important;
-    font-family: sans-serif !important;
-    font-style: normal !important;
+button[aria-label="keyboard_double_arrow_right"] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23475569' d='M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z'/%3E%3C/svg%3E") !important;
 }
-button[aria-label="keyboard_double_arrow_left"]::before {
-    content: "✕" !important;
-    font-size: 16px !important;
-    color: #475569 !important;
-    font-family: sans-serif !important;
+button[aria-label="keyboard_double_arrow_left"] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23475569' d='M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'/%3E%3C/svg%3E") !important;
+}
+button[aria-label="keyboard_double_arrow_right"] span,
+button[aria-label="keyboard_double_arrow_left"] span {
+    display: none !important;
 }
 
 /* ── expander 아이콘 텍스트(arrow_drop_down) 겹침 방지 ── */
