@@ -140,6 +140,7 @@ raw = st.text_area(
     height=130,
     placeholder="네이버 부동산 매물 내용을 복사해서 붙여넣으세요.\n예) 집주인 OO아파트 101동 / 매매 5억 / 84A/59.7m² / 15/25층 / 남향 / 확인매물 26.01.22",
     label_visibility="collapsed",
+    key=f"raw_input_{st.session_state.get('_raw_input_key', 0)}",
 )
 
 opt_col, btn_col = st.columns([3, 1])
@@ -149,7 +150,7 @@ with opt_col:
     keep_memo  = oc2.checkbox("메모 유지", value=True)
     use_gsheet = oc3.checkbox("구글시트", value=True)
 with btn_col:
-    do_parse = st.button("정리하기", type="primary", use_container_width=True)
+    do_parse = st.button("정리하기", use_container_width=True)
 
 if do_parse:
     blocks = split_blocks(raw) if raw else []
@@ -195,7 +196,6 @@ with res_col:
 
 # ── 저장 ──────────────────────────────────────────────────────────────────
 with save_col:
-    st.write("")
     do_save = st.button("저장하기", type="primary", use_container_width=True)
 
 if do_save:
@@ -236,3 +236,8 @@ if do_save:
             st.success(f"구글시트 — 성공 {ok} / 실패 {fail} (응답: {last})")
         except Exception as e:
             st.warning(f"구글시트 저장 실패 (로컬DB는 저장됨): {e}")
+
+    # 저장 완료 후 입력 초기화
+    st.session_state["df_parsed"] = None
+    st.session_state["_raw_input_key"] = st.session_state.get("_raw_input_key", 0) + 1
+    st.rerun()
