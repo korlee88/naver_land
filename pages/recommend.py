@@ -259,35 +259,95 @@ if df.empty:
 # ══════════════════════════════════════════════
 # 헤더
 # ══════════════════════════════════════════════
-st.markdown("#### 🏆 핵심 추천 매물 — 점수 기준 설정")
-st.caption("항목별 점수를 직접 입력하고 SET을 눌러 추천 결과를 확인하세요.")
+st.markdown("#### 🏆 핵심 추천 매물")
 
 # ══════════════════════════════════════════════
-# 점수 기준 입력 폼
+# [상단] 프리셋 + SET 버튼
 # ══════════════════════════════════════════════
-with st.expander("⚙️ 점수 기준 입력", expanded=True):
+p_cols = st.columns([1, 1, 1, 1])
+
+for i in range(3):
+    preset = st.session_state.presets[i]
+    with p_cols[i]:
+        has = preset["params"] is not None
+        st.markdown(
+            f"<div style='font-size:10px;font-weight:600;color:#64748b;margin-bottom:2px;'>"
+            f"{'✅' if has else '⬜'} 슬롯 {i+1}</div>",
+            unsafe_allow_html=True,
+        )
+        new_name = st.text_input(
+            "이름", value=preset["name"],
+            key=f"preset_name_{i}", label_visibility="collapsed",
+            placeholder=f"프리셋 {i+1}",
+        )
+        st.session_state.presets[i]["name"] = new_name
+
+        bc1, bc2 = st.columns(2)
+        if bc1.button("저장", key=f"save_preset_{i}", use_container_width=True):
+            st.session_state.presets[i]["params"] = {
+                k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS
+            }
+            st.toast(f"'{new_name}' 저장 완료 💾")
+
+        load_disabled = preset["params"] is None
+        if bc2.button("불러오기", key=f"load_preset_{i}",
+                      use_container_width=True, disabled=load_disabled):
+            for k, v in preset["params"].items():
+                st.session_state[f"sp_{k}"] = v
+            st.rerun()
+
+with p_cols[3]:
+    st.markdown(
+        "<div style='font-size:10px;font-weight:600;color:#64748b;margin-bottom:2px;'>추천 실행</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("🎯 SET 실행", type="primary", use_container_width=True):
+        st.session_state.run_params   = {k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS}
+        st.session_state.show_confirm = True
+        st.session_state.show_results = False
+
+    if st.session_state.show_confirm:
+        ok_col, cancel_col = st.columns(2)
+        if ok_col.button("✅ 확인", type="primary", use_container_width=True, key="confirm_yes"):
+            st.session_state.show_results = True
+            st.session_state.show_confirm = False
+            st.rerun()
+        if cancel_col.button("✖ 취소", use_container_width=True, key="confirm_no"):
+            st.session_state.show_confirm = False
+            st.rerun()
+    elif st.session_state.show_results:
+        if st.button("🔄 초기화", use_container_width=True):
+            st.session_state.show_results = False
+            st.rerun()
+
+st.divider()
+
+# ══════════════════════════════════════════════
+# 점수 기준 입력 폼 (접힌 상태로)
+# ══════════════════════════════════════════════
+with st.expander("⚙️ 점수 기준 입력 (클릭해서 열기)", expanded=False):
     c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
-        st.markdown("**💰 가격**")
-        st.number_input("기준가격(억)",     min_value=1.0,  max_value=20.0, step=0.5, key="sp_price_base")
-        st.number_input("1000만원당 ±점",   min_value=0.0,  max_value=50.0, step=1.0, key="sp_price_per_1000")
-        st.markdown("**📐 평형**")
-        st.number_input("59㎡(24평)",       min_value=-100, max_value=100,  step=5,   key="sp_area_59")
-        st.number_input("74㎡(29평)",       min_value=-100, max_value=100,  step=5,   key="sp_area_74")
-        st.number_input("84㎡(34평)",       min_value=-100, max_value=100,  step=5,   key="sp_area_84")
-        st.number_input("100㎡+(대형)",     min_value=-100, max_value=100,  step=5,   key="sp_area_100up")
+        st.caption("**💰 가격**")
+        st.number_input("기준가(억)",       min_value=1.0,  max_value=20.0, step=0.5, key="sp_price_base")
+        st.number_input("1천만원당 ±점",    min_value=0.0,  max_value=50.0, step=1.0, key="sp_price_per_1000")
+        st.caption("**📐 평형**")
+        st.number_input("59㎡",             min_value=-100, max_value=100,  step=5,   key="sp_area_59")
+        st.number_input("74㎡",             min_value=-100, max_value=100,  step=5,   key="sp_area_74")
+        st.number_input("84㎡",             min_value=-100, max_value=100,  step=5,   key="sp_area_84")
+        st.number_input("100㎡+",           min_value=-100, max_value=100,  step=5,   key="sp_area_100up")
 
     with c2:
-        st.markdown("**🏢 층수**")
+        st.caption("**🏢 층수**")
         st.number_input("1~5층",            min_value=-100, max_value=100,  step=5,   key="sp_floor_1_5")
         st.number_input("6~10층",           min_value=-100, max_value=100,  step=5,   key="sp_floor_6_10")
         st.number_input("11~15층",          min_value=-100, max_value=100,  step=5,   key="sp_floor_11_15")
         st.number_input("16~20층",          min_value=-100, max_value=100,  step=5,   key="sp_floor_16_20")
-        st.number_input("21층 이상",        min_value=-100, max_value=100,  step=5,   key="sp_floor_21_up")
+        st.number_input("21층+",            min_value=-100, max_value=100,  step=5,   key="sp_floor_21_up")
 
     with c3:
-        st.markdown("**🧭 방향**")
+        st.caption("**🧭 방향**")
         st.number_input("남향",             min_value=-50,  max_value=100,  step=5,   key="sp_dir_남향")
         st.number_input("남동",             min_value=-50,  max_value=100,  step=5,   key="sp_dir_남동")
         st.number_input("남서",             min_value=-50,  max_value=100,  step=5,   key="sp_dir_남서")
@@ -297,88 +357,26 @@ with st.expander("⚙️ 점수 기준 입력", expanded=True):
         st.number_input("북/북서",          min_value=-100, max_value=100,  step=5,   key="sp_dir_북")
 
     with c4:
-        st.markdown("**📉 하락폭**")
+        st.caption("**📉 하락폭**")
         st.number_input("최대점수",         min_value=0,    max_value=100,  step=5,   key="sp_drop_max")
-        st.markdown("**🆕 신규등록**")
+        st.caption("**🆕 신규등록**")
         st.number_input("기간(일)",         min_value=1,    max_value=60,   step=1,   key="sp_new_days")
         st.number_input("점수",             min_value=0,    max_value=100,  step=5,   key="sp_new_score")
-        st.markdown("**✅ 확인매물**")
+        st.caption("**✅ 확인매물**")
         st.number_input("14일 이내",        min_value=0,    max_value=100,  step=5,   key="sp_conf_14d")
         st.number_input("30일 이내",        min_value=0,    max_value=100,  step=5,   key="sp_conf_30d")
 
     with c5:
-        st.markdown("**📝 메모 키워드**")
+        st.caption("**📝 메모**")
         st.number_input("조망·뷰",          min_value=-50,  max_value=100,  step=5,   key="sp_memo_view")
         st.number_input("급매",             min_value=-50,  max_value=100,  step=5,   key="sp_memo_urgent")
         st.number_input("남향언급",         min_value=-50,  max_value=100,  step=5,   key="sp_memo_south")
-        st.number_input("하자·누수(감점)",  min_value=-100, max_value=0,    step=5,   key="sp_memo_defect")
-        st.markdown("**🏫 초품아**")
-        st.number_input("초품아 점수",      min_value=0,    max_value=100,  step=5,   key="sp_choguma_score",
-                        help="Kakao API 키 필요. 반경 내 초등학교 있으면 가산")
+        st.number_input("하자(감점)",       min_value=-100, max_value=0,    step=5,   key="sp_memo_defect")
+        st.caption("**🏫 초품아**")
+        st.number_input("초품아 점수",      min_value=0,    max_value=100,  step=5,   key="sp_choguma_score")
         st.number_input("반경(m)",          min_value=100,  max_value=1000, step=50,  key="sp_choguma_radius")
         if not kakao_key:
-            st.caption("⚠️ API 키 없으면 0점 처리")
-
-
-# ══════════════════════════════════════════════
-# 프리셋 관리 (3개 슬롯)
-# ══════════════════════════════════════════════
-st.markdown("**💾 기준 저장 / 불러오기**")
-p_cols = st.columns(3)
-
-for i, col in enumerate(p_cols):
-    preset = st.session_state.presets[i]
-    with col:
-        st.markdown(
-            f"<div style='background:#f8fafc;border:1px solid #e2e8f0;"
-            f"border-radius:8px;padding:8px 10px;font-size:12px;font-weight:700;"
-            f"color:#1e293b;margin-bottom:6px;'>"
-            f"{'✅ ' if preset['params'] else '⬜ '}{preset['name']}</div>",
-            unsafe_allow_html=True,
-        )
-        bc1, bc2 = st.columns(2)
-        if bc1.button("저장", key=f"save_preset_{i}", use_container_width=True):
-            st.session_state.presets[i]["params"] = {
-                k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS
-            }
-            st.success(f"{preset['name']} 저장 완료!", icon="💾")
-
-        load_disabled = preset["params"] is None
-        if bc2.button("불러오기", key=f"load_preset_{i}",
-                      use_container_width=True, disabled=load_disabled):
-            for k, v in preset["params"].items():
-                st.session_state[f"sp_{k}"] = v
-            st.rerun()
-
-
-# ══════════════════════════════════════════════
-# SET 버튼
-# ══════════════════════════════════════════════
-st.divider()
-if st.button("🎯 SET — 이 기준으로 추천 실행", type="primary", use_container_width=True):
-    st.session_state.run_params = {k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS}
-    st.session_state.show_confirm = True
-    st.session_state.show_results = False
-
-
-# ══════════════════════════════════════════════
-# 실행 확인 창
-# ══════════════════════════════════════════════
-if st.session_state.show_confirm:
-    st.markdown(
-        "<div style='background:#fffbeb;border:1px solid #fbbf24;border-radius:10px;"
-        "padding:14px 18px;margin:10px 0;font-size:13px;'>"
-        "⚡ <b>현재 점수 기준으로 추천 매물을 계산할까요?</b></div>",
-        unsafe_allow_html=True,
-    )
-    ok_col, cancel_col, _ = st.columns([1, 1, 5])
-    if ok_col.button("✅ 실행", type="primary", use_container_width=True):
-        st.session_state.show_results = True
-        st.session_state.show_confirm = False
-        st.rerun()
-    if cancel_col.button("❌ 취소", use_container_width=True):
-        st.session_state.show_confirm = False
-        st.rerun()
+            st.caption("⚠️ API키 없으면 0점")
 
 
 # ══════════════════════════════════════════════
