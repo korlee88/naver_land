@@ -204,59 +204,88 @@ with col_bar:
     fig_t = px.bar(
         plot_df, x="label", y="count", color="color",
         color_discrete_map={"이번 주": "#6366f1", "이전 주": "#93c5fd", "데이터 없음": "#f1f5f9"},
-        text="count", height=180,
+        text="count", height=200,
     )
-    fig_t.update_traces(texttemplate="%{text}건", textposition="outside", textfont_size=10)
+    # 건수 텍스트: 막대 안쪽 표시, 0건은 숨김
+    fig_t.update_traces(
+        texttemplate="%{text}건",
+        textposition="inside",
+        textfont=dict(size=10, color="white"),
+        insidetextanchor="middle",
+    )
+    fig_t.update_traces(
+        selector=dict(type="bar"),
+        texttemplate="%{y}건" ,
+    )
 
-    # 평균가 꺾은선 오버레이
+    # 평균가 꺾은선 — 라벨 없이 선만, 마지막 점만 라벨
     price_valid = w_df.dropna(subset=["avg_price"])
     if not price_valid.empty:
+        last_idx = price_valid.index[-1]
+        texts = [
+            f"{v:.2f}억" if idx == last_idx else ""
+            for idx, v in zip(price_valid.index, price_valid["avg_price"])
+        ]
         fig_t.add_trace(go.Scatter(
             x=price_valid["label"], y=price_valid["avg_price"],
             mode="lines+markers+text", name="평균가",
             yaxis="y2",
             line=dict(color="#f59e0b", width=2),
-            marker=dict(size=6, color="#f59e0b"),
-            text=[f"{v:.2f}억" for v in price_valid["avg_price"]],
-            textposition="top center", textfont=dict(size=9, color="#b45309"),
+            marker=dict(size=5, color="#f59e0b"),
+            text=texts,
+            textposition="top center",
+            textfont=dict(size=9, color="#b45309"),
         ))
 
+    p_min = w_df["avg_price"].min()
+    p_max = w_df["avg_price"].max()
     fig_t.update_layout(
-        margin=dict(l=0, r=0, t=10, b=0),
+        margin=dict(l=0, r=30, t=10, b=0),
         xaxis_title=None, yaxis_title=None, showlegend=False,
         plot_bgcolor="white",
         xaxis=dict(tickfont=dict(size=9)),
         yaxis=dict(showticklabels=False, showgrid=False),
-        yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False,
-                    range=[w_df["avg_price"].min() * 0.97, w_df["avg_price"].max() * 1.08]
-                    if w_df["avg_price"].notna().any() else None),
+        yaxis2=dict(
+            overlaying="y", side="right", showticklabels=False, showgrid=False,
+            range=[p_min * 0.95, p_max * 1.08] if w_df["avg_price"].notna().any() else None,
+        ),
     )
     st.plotly_chart(fig_t, use_container_width=True)
 
 with col_stat:
-    st.metric(
-        label=trend_label,
-        value=f"이번주 {curr}건",
-        delta=week_chg_str,
-        delta_color=trend_color,
-    )
-    st.caption(f"전주 {prev1}건" + (f" · 전전주 {prev2}건" if prev2 > 0 else ""))
-    st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
-    if avg_this is not None and avg_prev is not None:
-        price_chg = avg_this - avg_prev
-        p_color   = "#dc2626" if price_chg > 0 else "#16a34a"
-        p_sign    = "▲" if price_chg > 0 else "▼"
-        st.metric(
-            label="주간 평균가",
-            value=f"{avg_this:.2f}억",
-            delta=f"{p_sign}{abs(price_chg):.2f}억",
-            delta_color="inverse" if price_chg > 0 else "normal",
-        )
-    elif avg_this is not None:
-        st.metric(label="이번주 평균가", value=f"{avg_this:.2f}억")
+    # 매물량 변화
+    vol_delta_color = "inverse" if week_chg < 0 else ("normal" if week_chg > 0 else "off")
+    st.markdown(f"""
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;">
+  <div style="font-size:10px;color:#64748b;">📦 이번주 매물량 <span style="color:#94a3b8;font-size:9px;">{trend_label.split()[1] if len(trend_label.split())>1 else ''}</span></div>
+  <div style="font-size:20px;font-weight:700;color:#1e293b;margin:2px 0;">{curr}건</div>
+  <div style="font-size:11px;color:{'#dc2626' if week_chg < 0 else '#16a34a' if week_chg > 0 else '#64748b'};">
+    {'▼' if week_chg < 0 else '▲' if week_chg > 0 else '➡'} 전주 대비 {abs(week_chg)}건
+  </div>
+  <div style="font-size:10px;color:#94a3b8;margin-top:2px;">전주 {prev1}건 · 전전주 {prev2}건</div>
+</div>
+""", unsafe_allow_html=True)
+
+    # 주간 평균가 변화
+    if avg_this is not None:
+        price_chg = (avg_this - avg_prev) if avg_prev is not None else None
+        chg_txt = ""
+        chg_color = "#64748b"
+        if price_chg is not None and abs(price_chg) >= 0.01:
+            chg_txt   = f"{'▲' if price_chg > 0 else '▼'} 전주 대비 {abs(price_chg):.2f}억"
+            chg_color = "#dc2626" if price_chg > 0 else "#16a34a"
+        elif price_chg is not None:
+            chg_txt   = "전주와 동일"
+            chg_color = "#94a3b8"
+        st.markdown(f"""
+<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;">
+  <div style="font-size:10px;color:#64748b;">💰 이번주 평균가</div>
+  <div style="font-size:20px;font-weight:700;color:#1e293b;margin:2px 0;">{avg_this:.2f}억</div>
+  <div style="font-size:11px;color:{chg_color};">{chg_txt}</div>
+</div>
+""", unsafe_allow_html=True)
 
 # ── 단지별 현재 최저가 비교 ───────────────────────────────────────────────
-st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
 price_rows = []
 for cname in sel:
     dfc = df[df["complex_name"] == cname]
@@ -266,19 +295,27 @@ for cname in sel:
     prv_chunk = dfc[dfc["uploadday"] <  pd.Timestamp(datetime.now() - timedelta(days=14))]
     cur_min = now_chunk["eok"].min() if not now_chunk.empty else dfc["eok"].min()
     prv_min = prv_chunk["eok"].min() if not prv_chunk.empty else None
-    chg     = (cur_min - prv_min) if prv_min else None
-    price_rows.append({"단지": cname, "현재 최저가": cur_min, "_chg": chg})
+    chg     = round(cur_min - prv_min, 2) if prv_min is not None else None
+    price_rows.append({"단지": cname, "cur_min": cur_min, "chg": chg})
 
 if price_rows:
-    price_rows.sort(key=lambda x: x["현재 최저가"])
+    price_rows.sort(key=lambda x: x["cur_min"])
+    rank_icons = ["🥇", "🥈", "🥉"] + [""] * 10
+    medals = ["gold", "silver", "#cd7f32"] + [""] * 10
+    border_colors = ["#fbbf24", "#94a3b8", "#cd7f32"] + ["#e2e8f0"] * 10
+
+    st.markdown('<div class="sec" style="margin-top:8px;">🏷️ 단지별 현재 최저가 (최근 2주)</div>', unsafe_allow_html=True)
     cols_p = st.columns(len(price_rows))
     for i, row in enumerate(price_rows):
-        chg   = row["_chg"]
-        delta_str = f"{chg:+.2f}억" if chg is not None else None
-        d_color   = "inverse" if (chg and chg > 0) else "normal"
-        cols_p[i].metric(
-            label=f"{'🥇' if i==0 else ('🥈' if i==1 else '🥉' if i==2 else '　')} {row['단지']}",
-            value=f"{row['현재 최저가']:.2f}억",
-            delta=delta_str,
-            delta_color=d_color,
-        )
+        chg = row["chg"]
+        if chg is not None and abs(chg) >= 0.01:
+            chg_html = f"<span style='color:{'#dc2626' if chg > 0 else '#16a34a'};font-size:10px;'>{'▲' if chg > 0 else '▼'} {abs(chg):.2f}억</span>"
+        else:
+            chg_html = "<span style='color:#94a3b8;font-size:10px;'>변동 없음</span>"
+        cols_p[i].markdown(f"""
+<div style="background:#f8fafc;border:1px solid {border_colors[i]};border-radius:8px;
+            padding:8px 10px;text-align:center;">
+  <div style="font-size:11px;color:#64748b;">{rank_icons[i]} {row['단지']}</div>
+  <div style="font-size:18px;font-weight:700;color:#1e293b;margin:3px 0;">{row['cur_min']:.2f}억</div>
+  {chg_html}
+</div>""", unsafe_allow_html=True)
