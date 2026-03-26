@@ -57,57 +57,62 @@ with col_info:
 # ══════════════════════════════════════════════
 st.markdown('<div class="sec">📊 차트</div>', unsafe_allow_html=True)
 
-trend_names = sel[:4]
-chart_cols  = st.columns(len(trend_names), gap="small")
+COLS_PER_ROW = 3
+trend_names  = sel
 
-for idx, cname in enumerate(trend_names):
-    dfc   = df[df["complex_name"] == cname]
-    color = PALETTE[idx % len(PALETTE)]
+for row_start in range(0, len(trend_names), COLS_PER_ROW):
+    row_items  = trend_names[row_start : row_start + COLS_PER_ROW]
+    chart_cols = st.columns(len(row_items), gap="small")
 
-    if dfc.empty:
-        chart_cols[idx].caption(f"{cname} — 데이터 없음")
-        continue
+    for col_idx, cname in enumerate(row_items):
+        idx   = row_start + col_idx
+        dfc   = df[df["complex_name"] == cname]
+        color = PALETTE[idx % len(PALETTE)]
 
-    d2   = make_daily(dfc, drop_th)
-    x    = d2["uploadday"]
-    mask = x.notna() & d2["min_eok"].notna()
+        if dfc.empty:
+            chart_cols[col_idx].caption(f"{cname} — 데이터 없음")
+            continue
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=x, y=d2["n"], name="건수", yaxis="y2",
-        marker_color="#e2e8f0", opacity=0.5, showlegend=False,
-    ))
-    fig.add_trace(go.Scatter(
-        x=x[mask], y=d2["min_eok"][mask],
-        name="최저", line=dict(color=color, width=1.5, dash="dash"),
-    ))
-    fig.add_trace(go.Scatter(
-        x=x[mask], y=d2["max_eok"][mask],
-        name="최고", line=dict(color=color, width=1.0), opacity=0.6,
-    ))
-    drops = d2[d2["is_drop"]]
-    if not drops.empty:
-        fig.add_trace(go.Scatter(
-            x=drops["uploadday"], y=drops["min_eok"],
-            mode="markers", name="▼급락",
-            marker=dict(symbol="triangle-down", size=8, color="#ef4444"),
+        d2   = make_daily(dfc, drop_th)
+        x    = d2["uploadday"]
+        mask = x.notna() & d2["min_eok"].notna()
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=x, y=d2["n"], name="건수", yaxis="y2",
+            marker_color="#e2e8f0", opacity=0.5, showlegend=False,
         ))
+        fig.add_trace(go.Scatter(
+            x=x[mask], y=d2["min_eok"][mask],
+            name="최저", line=dict(color=color, width=1.5, dash="dash"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=x[mask], y=d2["max_eok"][mask],
+            name="최고", line=dict(color=color, width=1.0), opacity=0.6,
+        ))
+        drops = d2[d2["is_drop"]]
+        if not drops.empty:
+            fig.add_trace(go.Scatter(
+                x=drops["uploadday"], y=drops["min_eok"],
+                mode="markers", name="▼급락",
+                marker=dict(symbol="triangle-down", size=8, color="#ef4444"),
+            ))
 
-    fig.update_layout(
-        title=dict(text=cname, font=dict(size=11), x=0, xanchor="left"),
-        height=270,
-        margin=dict(l=40, r=20, t=30, b=60),
-        plot_bgcolor="white",
-        legend=dict(orientation="h", y=-0.28, x=0, font=dict(size=9)),
-        xaxis=dict(tickfont=dict(size=8), tickangle=30),
-        yaxis=dict(
-            title="가격(억)", tickfont=dict(size=8),
-            showgrid=True, gridcolor="#f1f5f9",
-            dtick=0.5, tickformat=".1f",
-        ),
-        yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False),
-    )
-    chart_cols[idx].plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            title=dict(text=cname, font=dict(size=11), x=0, xanchor="left"),
+            height=270,
+            margin=dict(l=40, r=20, t=30, b=60),
+            plot_bgcolor="white",
+            legend=dict(orientation="h", y=-0.28, x=0, font=dict(size=9)),
+            xaxis=dict(tickfont=dict(size=8), tickangle=30),
+            yaxis=dict(
+                title="가격(억)", tickfont=dict(size=8),
+                showgrid=True, gridcolor="#f1f5f9",
+                dtick=0.5, tickformat=".1f",
+            ),
+            yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False),
+        )
+        chart_cols[col_idx].plotly_chart(fig, use_container_width=True)
 
 
 # ══════════════════════════════════════════════
@@ -147,20 +152,21 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="sec" style="margin-top:10px;">📈 매물량 트렌드</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec" style="margin-top:10px;">📈 매물량 · 가격 트렌드</div>', unsafe_allow_html=True)
 
-now_ts = pd.Timestamp(datetime.now())
+now_ts  = pd.Timestamp(datetime.now())
+cut_now = now_ts - timedelta(weeks=1)
+cut_prv = now_ts - timedelta(weeks=2)
+
 weekly = []
 for w in range(5, -1, -1):
     w_end   = now_ts - timedelta(weeks=w)
     w_start = w_end - timedelta(weeks=1)
-    cnt = (
-        df[(df["uploadday"] >= w_start) & (df["uploadday"] < w_end)]["uid"].nunique()
-        if "uid" in df.columns else
-        len(df[(df["uploadday"] >= w_start) & (df["uploadday"] < w_end)])
-    )
+    chunk   = df[(df["uploadday"] >= w_start) & (df["uploadday"] < w_end)]
+    cnt = chunk["uid"].nunique() if "uid" in df.columns else len(chunk)
+    avg_p = chunk["eok"].mean() if not chunk.empty else None
     label = w_start.strftime("%m/%d") + "~" + w_end.strftime("%m/%d")
-    weekly.append({"label": label, "count": cnt, "week_ago": w})
+    weekly.append({"label": label, "count": cnt, "avg_price": avg_p, "week_ago": w})
 
 w_df      = pd.DataFrame(weekly)
 w_df_data = w_df[w_df["count"] > 0].reset_index(drop=True)
@@ -169,26 +175,23 @@ curr  = int(w_df[w_df["week_ago"] == 0]["count"].values[0])
 prev1 = int(w_df[w_df["week_ago"] == 1]["count"].values[0])
 prev2 = int(w_df[w_df["week_ago"] == 2]["count"].values[0])
 
+avg_this = w_df[w_df["week_ago"] == 0]["avg_price"].values[0]
+avg_prev = w_df[w_df["week_ago"] == 1]["avg_price"].values[0]
+
 active_counts = w_df_data["count"].tolist()
 week_chg = curr - prev1
 if len(active_counts) >= 2:
-    if len(active_counts) == 2:
-        if week_chg > 0:   trend_label, trend_color = "📈 증가 추세", "normal"
-        elif week_chg < 0: trend_label, trend_color = "📉 감소 추세", "inverse"
-        else:              trend_label, trend_color = "➡️ 보합세",   "off"
-    else:
-        diffs    = [active_counts[i+1] - active_counts[i] for i in range(len(active_counts)-1)]
-        up_cnt   = sum(1 for d in diffs if d > 0)
-        down_cnt = sum(1 for d in diffs if d < 0)
-        if up_cnt > down_cnt:   trend_label, trend_color = "📈 증가 추세", "normal"
-        elif down_cnt > up_cnt: trend_label, trend_color = "📉 감소 추세", "inverse"
-        else:                   trend_label, trend_color = "➡️ 보합세",   "off"
+    diffs    = [active_counts[i+1] - active_counts[i] for i in range(len(active_counts)-1)]
+    up_cnt   = sum(1 for d in diffs if d > 0)
+    down_cnt = sum(1 for d in diffs if d < 0)
+    if up_cnt > down_cnt:   trend_label, trend_color = "📈 증가 추세", "normal"
+    elif down_cnt > up_cnt: trend_label, trend_color = "📉 감소 추세", "inverse"
+    else:                   trend_label, trend_color = "➡️ 보합세",   "off"
 else:
     week_chg = 0
     trend_label, trend_color = "➡️ 수집 중", "off"
 
 week_chg_str = f"{week_chg:+d}건" if week_chg != 0 else "±0건"
-data_note    = f"(데이터 {len(w_df_data)}주치 기준)" if len(w_df_data) < 4 else "(최근 흐름 기준)"
 
 col_bar, col_stat = st.columns([3, 1])
 
@@ -200,24 +203,82 @@ with col_bar:
     )
     fig_t = px.bar(
         plot_df, x="label", y="count", color="color",
-        color_discrete_map={"이번 주": "#6366f1", "이전 주": "#c7d2fe", "데이터 없음": "#f1f5f9"},
-        text="count", height=160,
+        color_discrete_map={"이번 주": "#6366f1", "이전 주": "#93c5fd", "데이터 없음": "#f1f5f9"},
+        text="count", height=180,
     )
     fig_t.update_traces(texttemplate="%{text}건", textposition="outside", textfont_size=10)
+
+    # 평균가 꺾은선 오버레이
+    price_valid = w_df.dropna(subset=["avg_price"])
+    if not price_valid.empty:
+        fig_t.add_trace(go.Scatter(
+            x=price_valid["label"], y=price_valid["avg_price"],
+            mode="lines+markers+text", name="평균가",
+            yaxis="y2",
+            line=dict(color="#f59e0b", width=2),
+            marker=dict(size=6, color="#f59e0b"),
+            text=[f"{v:.2f}억" for v in price_valid["avg_price"]],
+            textposition="top center", textfont=dict(size=9, color="#b45309"),
+        ))
+
     fig_t.update_layout(
         margin=dict(l=0, r=0, t=10, b=0),
         xaxis_title=None, yaxis_title=None, showlegend=False,
         plot_bgcolor="white",
         xaxis=dict(tickfont=dict(size=9)),
         yaxis=dict(showticklabels=False, showgrid=False),
+        yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False,
+                    range=[w_df["avg_price"].min() * 0.97, w_df["avg_price"].max() * 1.08]
+                    if w_df["avg_price"].notna().any() else None),
     )
     st.plotly_chart(fig_t, use_container_width=True)
 
 with col_stat:
     st.metric(
-        label=trend_label + " " + data_note,
+        label=trend_label,
         value=f"이번주 {curr}건",
         delta=week_chg_str,
         delta_color=trend_color,
     )
     st.caption(f"전주 {prev1}건" + (f" · 전전주 {prev2}건" if prev2 > 0 else ""))
+    st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
+    if avg_this is not None and avg_prev is not None:
+        price_chg = avg_this - avg_prev
+        p_color   = "#dc2626" if price_chg > 0 else "#16a34a"
+        p_sign    = "▲" if price_chg > 0 else "▼"
+        st.metric(
+            label="주간 평균가",
+            value=f"{avg_this:.2f}억",
+            delta=f"{p_sign}{abs(price_chg):.2f}억",
+            delta_color="inverse" if price_chg > 0 else "normal",
+        )
+    elif avg_this is not None:
+        st.metric(label="이번주 평균가", value=f"{avg_this:.2f}억")
+
+# ── 단지별 현재 최저가 비교 ───────────────────────────────────────────────
+st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
+price_rows = []
+for cname in sel:
+    dfc = df[df["complex_name"] == cname]
+    if dfc.empty:
+        continue
+    now_chunk = dfc[dfc["uploadday"] >= pd.Timestamp(datetime.now() - timedelta(days=14))]
+    prv_chunk = dfc[dfc["uploadday"] <  pd.Timestamp(datetime.now() - timedelta(days=14))]
+    cur_min = now_chunk["eok"].min() if not now_chunk.empty else dfc["eok"].min()
+    prv_min = prv_chunk["eok"].min() if not prv_chunk.empty else None
+    chg     = (cur_min - prv_min) if prv_min else None
+    price_rows.append({"단지": cname, "현재 최저가": cur_min, "_chg": chg})
+
+if price_rows:
+    price_rows.sort(key=lambda x: x["현재 최저가"])
+    cols_p = st.columns(len(price_rows))
+    for i, row in enumerate(price_rows):
+        chg   = row["_chg"]
+        delta_str = f"{chg:+.2f}억" if chg is not None else None
+        d_color   = "inverse" if (chg and chg > 0) else "normal"
+        cols_p[i].metric(
+            label=f"{'🥇' if i==0 else ('🥈' if i==1 else '🥉' if i==2 else '　')} {row['단지']}",
+            value=f"{row['현재 최저가']:.2f}억",
+            delta=delta_str,
+            delta_color=d_color,
+        )

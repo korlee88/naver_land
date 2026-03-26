@@ -133,21 +133,25 @@ def _push_gsheet(rows_2d, batch_size=200):
 
 
 # ── UI ────────────────────────────────────────────────────────────────────
-st.title("매물 입력 (RAW)")
-st.caption("복사 → 붙여넣기 → 정리 → 저장")
+st.markdown("#### 📝 매물 데이터 입력")
 
 raw = st.text_area(
-    "매물 내용 붙여넣기",
-    height=260,
-    placeholder="예) 집주인... / 매매... / 확인매물 26.01.22 ...",
+    label="매물 내용 붙여넣기",
+    height=130,
+    placeholder="네이버 부동산 매물 내용을 복사해서 붙여넣으세요.\n예) 집주인 OO아파트 101동 / 매매 5억 / 84A/59.7m² / 15/25층 / 남향 / 확인매물 26.01.22",
+    label_visibility="collapsed",
 )
 
-c1, c2, c3 = st.columns(3)
-keep_raw   = c1.checkbox("원문블록 유지", value=True)
-keep_memo  = c2.checkbox("요약메모 유지", value=True)
-use_gsheet = c3.checkbox("구글시트 저장", value=True)
+opt_col, btn_col = st.columns([3, 1])
+with opt_col:
+    oc1, oc2, oc3 = st.columns(3)
+    keep_raw   = oc1.checkbox("원문 유지", value=True)
+    keep_memo  = oc2.checkbox("메모 유지", value=True)
+    use_gsheet = oc3.checkbox("구글시트", value=True)
+with btn_col:
+    do_parse = st.button("정리하기", type="primary", use_container_width=True)
 
-if st.button("정리하기", type="primary", use_container_width=True):
+if do_parse:
     blocks = split_blocks(raw) if raw else []
     if not blocks:
         st.warning("파싱할 블록을 찾지 못했습니다.")
@@ -165,27 +169,36 @@ if st.button("정리하기", type="primary", use_container_width=True):
 # ── 파싱 결과 ─────────────────────────────────────────────────────────────
 df = st.session_state.get("df_parsed")
 if df is None or df.empty:
-    st.info("위에 붙여넣고 '정리하기'를 눌러주세요.")
+    st.caption("매물 내용을 붙여넣고 '정리하기'를 눌러주세요.")
     st.stop()
-
-# 표시 컬럼 구성
-hide = []
-if not keep_raw:  hide.append("원문블록")
-if not keep_memo: hide.append("요약메모")
-view_df = df.drop(columns=[c for c in hide if c in df.columns])
-st.dataframe(view_df, use_container_width=True)
 
 # 필수값 검증
 bad = df[df[REQUIRED].isna().any(axis=1)]
-if not bad.empty:
-    st.error(f"❌ {len(bad)}건 파싱 실패 (단지명 등 누락) — 저장 불가")
-    st.dataframe(bad[REQUIRED + ["원문블록"]].head(20), use_container_width=True)
-    st.stop()
+ok_cnt   = len(df) - len(bad)
+fail_cnt = len(bad)
 
 st.divider()
 
+if fail_cnt > 0:
+    st.warning(f"⚠️ {len(df)}건 중 **{ok_cnt}건 정상** / {fail_cnt}건 실패 (단지명 등 누락)")
+    with st.expander(f"실패 {fail_cnt}건 확인"):
+        st.dataframe(bad[REQUIRED + ["원문블록"]].head(20), use_container_width=True)
+    st.stop()
+
+# 성공 요약
+res_col, save_col = st.columns([3, 1])
+with res_col:
+    st.success(f"✅ **{ok_cnt}건** 파싱 완료")
+    prev_cols = ["단지명", "동", "거래유형", "가격", "층", "향", "확인매물"]
+    with st.expander("결과 미리보기 (최대 5건)"):
+        st.dataframe(df[prev_cols].head(5), use_container_width=True, hide_index=True)
+
 # ── 저장 ──────────────────────────────────────────────────────────────────
-if st.button("저장하기 (로컬DB / 선택: 구글시트)", use_container_width=True):
+with save_col:
+    st.write("")
+    do_save = st.button("저장하기", type="primary", use_container_width=True)
+
+if do_save:
     records  = df.to_dict("records")
     inserted = updated = history = 0
 
