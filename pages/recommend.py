@@ -270,35 +270,40 @@ for i in range(3):
     preset = st.session_state.presets[i]
     with p_cols[i]:
         has = preset["params"] is not None
-        st.markdown(
-            f"<div style='font-size:10px;font-weight:600;color:#64748b;margin-bottom:2px;'>"
-            f"{'✅' if has else '⬜'} 슬롯 {i+1}</div>",
-            unsafe_allow_html=True,
-        )
-        new_name = st.text_input(
-            "이름", value=preset["name"],
-            key=f"preset_name_{i}", label_visibility="collapsed",
-            placeholder=f"프리셋 {i+1}",
-        )
-        st.session_state.presets[i]["name"] = new_name
+        border_color = "#6366f1" if has else "#e2e8f0"
+        status_icon  = "✅" if has else "⬜"
+        with st.container(border=True):
+            # 슬롯 헤더: 상태 아이콘 + 이름 입력
+            h1, h2 = st.columns([1, 5])
+            h1.markdown(
+                f"<div style='font-size:18px;padding-top:6px;'>{status_icon}</div>",
+                unsafe_allow_html=True,
+            )
+            new_name = h2.text_input(
+                "이름", value=preset["name"],
+                key=f"preset_name_{i}",
+                label_visibility="collapsed",
+                placeholder=f"슬롯 {i+1} 이름",
+            )
+            st.session_state.presets[i]["name"] = new_name
 
-        bc1, bc2 = st.columns(2)
-        if bc1.button("저장", key=f"save_preset_{i}", use_container_width=True):
-            st.session_state.presets[i]["params"] = {
-                k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS
-            }
-            st.toast(f"'{new_name}' 저장 완료 💾")
+            bc1, bc2 = st.columns(2)
+            if bc1.button("💾 저장", key=f"save_preset_{i}", use_container_width=True):
+                st.session_state.presets[i]["params"] = {
+                    k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS
+                }
+                st.toast(f"'{new_name}' 저장 완료 💾")
 
-        load_disabled = preset["params"] is None
-        if bc2.button("불러오기", key=f"load_preset_{i}",
-                      use_container_width=True, disabled=load_disabled):
-            for k, v in preset["params"].items():
-                st.session_state[f"sp_{k}"] = v
-            st.rerun()
+            load_disabled = preset["params"] is None
+            if bc2.button("📂 불러오기", key=f"load_preset_{i}",
+                          use_container_width=True, disabled=load_disabled):
+                for k, v in preset["params"].items():
+                    st.session_state[f"sp_{k}"] = v
+                st.rerun()
 
 with p_cols[3]:
     st.markdown(
-        "<div style='font-size:10px;font-weight:600;color:#64748b;margin-bottom:2px;'>추천 실행</div>",
+        "<div style='font-size:10px;font-weight:600;color:#64748b;margin-bottom:2px;'>&nbsp;</div>",
         unsafe_allow_html=True,
     )
     if st.button("🎯 SET 실행", type="primary", use_container_width=True):
