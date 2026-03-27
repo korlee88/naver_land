@@ -70,11 +70,6 @@ section[data-testid="stSidebar"] [data-testid="stIconMaterial"],
     flex-shrink: 0;
 }
 
-/* ── Streamlit 자동생성 사이드바 nav 숨김 (커스텀 st.page_link 사용) ── */
-[data-testid="stSidebarNav"] {
-    display: none !important;
-}
-
 /* ── 메인 컨텐츠 전체 너비 사용 ── */
 .block-container {
     max-width: 100% !important;
