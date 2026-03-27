@@ -433,7 +433,10 @@ if st.session_state.show_results and st.session_state.run_params:
 
     df_sc      = pd.concat(parts, ignore_index=True)
     latest_day = df_sc["uploadday"].max()
-    df_latest  = df_sc[df_sc["uploadday"] == latest_day].copy()
+    # 단지별 마지막 일자 기준으로 필터링 (단지마다 최신 데이터 날짜가 달라도 반영)
+    df_latest  = df_sc[
+        df_sc["uploadday"] == df_sc.groupby("complex_name")["uploadday"].transform("max")
+    ].copy()
     if "uid" in df_latest.columns:
         df_latest = df_latest.sort_values("score", ascending=False).drop_duplicates("uid")
 
@@ -492,7 +495,7 @@ if st.session_state.show_results and st.session_state.run_params:
   <div class="rec-detail" style="margin-top:6px;">{"  ·  ".join(parts_d)}</div>
   {'<div class="rec-detail" style="color:#ef4444;">' + drop_txt + '</div>' if drop_txt else ''}
   {'<div class="rec-detail">' + date_str + '</div>' if date_str else ''}
-  {'<div class="rec-detail" style="color:#475569;font-style:italic;">' + memo_str + '</div>' if memo_str else ''}
+  <div class="rec-detail" style="color:#475569;font-style:italic;margin-top:4px;">📝 {memo_str if memo_str else '-'}</div>
   <div style="margin-top:6px;line-height:1.8;">{breakdown}</div>
   <div class="score-bar-bg"><div class="score-bar-fill" style="width:{bar_w}%;"></div></div>
 </div>""", unsafe_allow_html=True)
@@ -502,7 +505,7 @@ if st.session_state.show_results and st.session_state.run_params:
 
     want = ["complex_name","eok","score","score_price","score_floor","score_dir",
             "score_area","score_drop","score_new","score_conf","score_memo",
-            "floor","direction","area","dong"]
+            "floor","direction","area","dong","memo"]
     show_cols = [c for c in want if c in df_latest.columns]
     df_show = df_latest[show_cols].sort_values("score", ascending=False).reset_index(drop=True)
     df_show.index += 1
@@ -511,7 +514,7 @@ if st.session_state.show_results and st.session_state.run_params:
         "score_price":"가격점","score_floor":"층수점","score_dir":"방향점",
         "score_area":"평형점","score_drop":"하락점","score_new":"신규점",
         "score_conf":"확인점","score_memo":"메모점",
-        "floor":"층","direction":"방향","area":"평형","dong":"동",
+        "floor":"층","direction":"방향","area":"평형","dong":"동","memo":"메모",
     }, inplace=True)
 
     st.dataframe(df_show, use_container_width=True, height=320)

@@ -140,6 +140,12 @@ def build_df():
     want = ["uid", "complex_name", "trade_type", "floor", "direction", "area", "confirm_date", "memo", "dong"]
     cols = [c for c in want if c in lst.columns]
     df   = hist.merge(lst[cols], on="uid", how="left")
+    # hist와 lst 모두 memo 컬럼을 가질 경우 merge 후 memo_x/memo_y로 분리됨 → lst의 memo 우선 사용
+    if "memo_y" in df.columns:
+        df["memo"] = df["memo_y"].fillna(df.get("memo_x"))
+        df.drop(columns=[c for c in ["memo_x", "memo_y"] if c in df.columns], inplace=True)
+    elif "memo_x" in df.columns:
+        df.rename(columns={"memo_x": "memo"}, inplace=True)
     df   = df[df["trade_type"] == "매매"].copy()
     df["complex_name"] = df["complex_name"].apply(clean_name)
     df   = df[df["complex_name"] != ""].copy()
@@ -264,7 +270,10 @@ def get_badges(row):
         badges.append('<span class="rec-badge badge-new">신규</span>')
     if row.get("drop_eok", 0) > 0:
         badges.append(f'<span class="rec-badge badge-drop">▼{row["drop_eok"]:.2f}억 하락</span>')
-    if row.get("score_new", 0) > 0 and row.get("score_drop", 0) > 15:
+    memo_txt = str(row.get("memo", "") or "").lower()
+    is_urgent = (any(k in memo_txt for k in ["급매", "급처", "급!", "특가"]) or
+                 (row.get("score_new", 0) > 0 and row.get("score_drop", 0) > 15))
+    if is_urgent:
         badges.append('<span class="rec-badge badge-hot">급매</span>')
     if row.get("score_conf", 0) > 0:
         badges.append('<span class="rec-badge badge-conf">확인매물</span>')
