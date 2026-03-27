@@ -68,12 +68,14 @@ if "presets" not in st.session_state:
         {"name": "프리셋 2", "params": None},
         {"name": "프리셋 3", "params": None},
     ]
-if "show_confirm" not in st.session_state:
+if "show_confirm"    not in st.session_state:
     st.session_state.show_confirm = False
-if "run_params"   not in st.session_state:
+if "run_params"      not in st.session_state:
     st.session_state.run_params = None
-if "show_results" not in st.session_state:
+if "show_results"    not in st.session_state:
     st.session_state.show_results = False
+if "active_preset"   not in st.session_state:
+    st.session_state.active_preset = None   # None = 직접입력, int = 슬롯 번호
 
 
 # ══════════════════════════════════════════════
@@ -269,10 +271,17 @@ p_cols = st.columns([1, 1, 1, 1])
 for i in range(3):
     preset = st.session_state.presets[i]
     with p_cols[i]:
-        has = preset["params"] is not None
-        border_color = "#6366f1" if has else "#e2e8f0"
-        status_icon  = "✅" if has else "⬜"
+        has       = preset["params"] is not None
+        is_active = (st.session_state.active_preset == i)
+        status_icon = "🟢" if is_active else ("✅" if has else "⬜")
         with st.container(border=True):
+            if is_active:
+                st.markdown(
+                    "<div style='font-size:9px;font-weight:700;color:#6366f1;"
+                    "background:#ede9fe;border-radius:4px;padding:1px 6px;"
+                    "display:inline-block;margin-bottom:2px;'>현재 적용 중</div>",
+                    unsafe_allow_html=True,
+                )
             # 슬롯 헤더: 상태 아이콘 + 이름 입력
             h1, h2 = st.columns([1, 5])
             h1.markdown(
@@ -292,6 +301,7 @@ for i in range(3):
                 st.session_state.presets[i]["params"] = {
                     k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS
                 }
+                st.session_state.active_preset = i
                 st.toast(f"'{new_name}' 저장 완료 💾")
 
             load_disabled = preset["params"] is None
@@ -299,13 +309,19 @@ for i in range(3):
                           use_container_width=True, disabled=load_disabled):
                 for k, v in preset["params"].items():
                     st.session_state[f"sp_{k}"] = v
+                st.session_state.active_preset = i
                 st.rerun()
 
 with p_cols[3]:
-    st.markdown(
-        "<div style='font-size:10px;font-weight:600;color:#64748b;margin-bottom:2px;'>&nbsp;</div>",
-        unsafe_allow_html=True,
-    )
+    # 현재 활성 프리셋 표시
+    ap = st.session_state.active_preset
+    if ap is not None:
+        ap_name = st.session_state.presets[ap]["name"]
+        ap_label = f"<div style='font-size:10px;font-weight:600;color:#6366f1;margin-bottom:4px;background:#ede9fe;border-radius:5px;padding:2px 7px;display:inline-block;'>📂 {ap_name}</div>"
+    else:
+        ap_label = "<div style='font-size:10px;color:#94a3b8;margin-bottom:4px;'>✏️ 직접 입력 기준</div>"
+    st.markdown(ap_label, unsafe_allow_html=True)
+
     if st.button("🎯 SET 실행", type="primary", use_container_width=True):
         st.session_state.run_params   = {k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS}
         st.session_state.show_confirm = True
