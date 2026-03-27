@@ -330,7 +330,7 @@ st.divider()
 # ══════════════════════════════════════════════
 # 점수 기준 입력 폼 (접힌 상태로)
 # ══════════════════════════════════════════════
-with st.expander("⚙️ 점수 기준 입력 (클릭해서 열기)", expanded=False):
+with st.expander("⚙️ 점수 설정", expanded=False):
     c1, c2, c3, c4, c5 = st.columns(5)
 
     with c1:
