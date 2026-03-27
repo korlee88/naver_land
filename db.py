@@ -35,6 +35,15 @@ def init_db() -> None:
         )
         """)
 
+        # 삭제된 UID 블랙리스트 (재입력 시 복구 방지)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS deleted_uids (
+            uid        TEXT PRIMARY KEY,
+            deleted_at TEXT NOT NULL,
+            reason     TEXT
+        )
+        """)
+
         # 최신 상태(마스터)
         cur.execute("""
         CREATE TABLE IF NOT EXISTS listings (
@@ -138,6 +147,11 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
     with get_conn() as conn:
         existing = _get_existing(conn, uid)
         cur = conn.cursor()
+
+        # 삭제된 UID면 재삽입 차단
+        cur.execute("SELECT 1 FROM deleted_uids WHERE uid = ?", (uid,))
+        if cur.fetchone():
+            return "blocked", "no_history"
 
         if existing is None:
             # INSERT listings
@@ -280,11 +294,10 @@ def delete_history_by_batch(batch_id: str) -> int:
         return deleted
 
 
-def delete_listing_by_uid(uid: str) -> int:
+def delete_listing_by_uid(uid: str, reason: str = "") -> int:
     """
     listings + price_history에서 uid로 완전 삭제.
-    FK + ON DELETE CASCADE 덕분에 listings만 지워도 history가 지워지지만,
-    삭제 행수 정확히 보여주려면 history count도 같이 계산해줌.
+    삭제된 uid는 deleted_uids 블랙리스트에 기록해 재입력 시 복구 방지.
     """
     with get_conn() as conn:
         cur = conn.cursor()
@@ -296,6 +309,12 @@ def delete_listing_by_uid(uid: str) -> int:
         # listings 삭제 (CASCADE로 history도 자동 삭제됨)
         cur.execute("DELETE FROM listings WHERE uid = ?", (uid,))
         list_cnt = cur.rowcount
+
+        # 블랙리스트에 등록
+        cur.execute("""
+            INSERT OR REPLACE INTO deleted_uids (uid, deleted_at, reason)
+            VALUES (?, ?, ?)
+        """, (uid, _now_iso(), reason))
 
         conn.commit()
         return hist_cnt + list_cnt

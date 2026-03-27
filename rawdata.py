@@ -200,7 +200,7 @@ with save_col:
 
 if do_save:
     records  = df.to_dict("records")
-    inserted = updated = history = 0
+    inserted = updated = history = blocked = 0
 
     prog = st.progress(0, text="저장 중…")
     for i, r in enumerate(records):
@@ -221,12 +221,16 @@ if do_save:
             "batch_id":     r.get("batch_id"),
         })
         inserted += result == "insert"
-        updated  += result != "insert"
+        blocked  += result == "blocked"
+        updated  += result not in ("insert", "blocked")
         history  += hist == "history"
         prog.progress((i + 1) / len(records), text=f"{i+1}/{len(records)} 저장 중…")
 
     prog.empty()
-    st.success(f"✅ 로컬DB 완료 — 신규 {inserted} / 업데이트 {updated} / 히스토리 {history}")
+    msg = f"✅ 로컬DB 완료 — 신규 {inserted} / 업데이트 {updated} / 히스토리 {history}"
+    if blocked:
+        msg += f" / 삭제된 매물 차단 {blocked}건"
+    st.success(msg)
 
     if use_gsheet:
         batch_id = records[0].get("batch_id", datetime.now().strftime("%Y-%m-%d"))
