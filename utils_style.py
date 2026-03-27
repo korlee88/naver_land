@@ -46,14 +46,9 @@ section[data-testid="stSidebar"] [data-testid="stIconMaterial"],
     display: inline-block !important;
 }
 
-/* ── expander 아이콘 텍스트(arrow_drop_down) 겹침 방지 ── */
-[data-testid="stExpander"] summary .material-icons,
-[data-testid="stExpander"] summary span[class*="material"],
-[data-testid="stExpander"] details summary > span:first-child {
-    font-size: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-    display: none !important;
+/* ── expander 아이콘(화살표) 숨김 — 제목 텍스트는 유지 ── */
+[data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"] svg path {
+    /* 아이콘 자체는 숨기지 않음 — 제목 텍스트 보호 */
 }
 
 /* ── Material Icons 폰트 미로드 시 아이콘 텍스트 겹침 방지 ── */
@@ -73,6 +68,11 @@ section[data-testid="stSidebar"] [data-testid="stIconMaterial"],
     min-width: 20px;
     overflow: hidden;
     flex-shrink: 0;
+}
+
+/* ── Streamlit 자동생성 사이드바 nav 숨김 (커스텀 st.page_link 사용) ── */
+[data-testid="stSidebarNav"] {
+    display: none !important;
 }
 
 /* ── 메인 컨텐츠 전체 너비 사용 ── */
