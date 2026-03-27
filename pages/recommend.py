@@ -17,10 +17,12 @@ from utils_graph import (
     build_df, get_badges, render_sidebar,
     RANK_EMOJIS, SHARED_CSS, _RE_FLOOR,
 )
+from db import init_db, load_presets, save_preset
 
 inject_korean_font()
 require_auth()
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
+init_db()
 
 # ══════════════════════════════════════════════
 # 기본 점수 파라미터
@@ -63,11 +65,7 @@ for k, v in DEFAULT_PARAMS.items():
         st.session_state[f"sp_{k}"] = v
 
 if "presets" not in st.session_state:
-    st.session_state.presets = [
-        {"name": "프리셋 1", "params": None},
-        {"name": "프리셋 2", "params": None},
-        {"name": "프리셋 3", "params": None},
-    ]
+    st.session_state.presets = load_presets()
 if "show_confirm"    not in st.session_state:
     st.session_state.show_confirm = False
 if "run_params"      not in st.session_state:
@@ -298,10 +296,10 @@ for i in range(3):
 
             bc1, bc2 = st.columns(2)
             if bc1.button("💾 저장", key=f"save_preset_{i}", use_container_width=True):
-                st.session_state.presets[i]["params"] = {
-                    k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS
-                }
+                params = {k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS}
+                st.session_state.presets[i]["params"] = params
                 st.session_state.active_preset = i
+                save_preset(i, new_name, params)
                 st.toast(f"'{new_name}' 저장 완료 💾")
 
             load_disabled = preset["params"] is None

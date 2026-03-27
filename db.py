@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
@@ -24,6 +25,15 @@ def get_conn() -> sqlite3.Connection:
 def init_db() -> None:
     with get_conn() as conn:
         cur = conn.cursor()
+
+        # 프리셋 저장 테이블
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS presets (
+            slot    INTEGER PRIMARY KEY,
+            name    TEXT NOT NULL,
+            params  TEXT NOT NULL
+        )
+        """)
 
         # 최신 상태(마스터)
         cur.execute("""
@@ -303,3 +313,34 @@ def delete_history_by_ids(ids: List[int]) -> int:
         deleted = cur.rowcount
         conn.commit()
         return deleted
+
+
+# =========================
+# Presets
+# =========================
+def load_presets() -> List[Dict[str, Any]]:
+    """슬롯 0~2의 프리셋을 DB에서 로드. 없는 슬롯은 기본값 반환."""
+    defaults = [
+        {"name": f"프리셋 {i+1}", "params": None} for i in range(3)
+    ]
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT slot, name, params FROM presets WHERE slot IN (0,1,2)")
+        for row in cur.fetchall():
+            slot = row["slot"]
+            defaults[slot] = {
+                "name":   row["name"],
+                "params": json.loads(row["params"]),
+            }
+    return defaults
+
+
+def save_preset(slot: int, name: str, params: Dict[str, Any]) -> None:
+    """슬롯에 프리셋 저장 (upsert)."""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO presets (slot, name, params)
+            VALUES (?, ?, ?)
+            ON CONFLICT(slot) DO UPDATE SET name=excluded.name, params=excluded.params
+        """, (slot, name, json.dumps(params)))
+        conn.commit()
