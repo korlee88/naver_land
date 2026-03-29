@@ -84,6 +84,24 @@ def init_db() -> None:
         )
         """)
 
+        # 방문 매물 기록
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS visited_properties (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_date   TEXT,
+            complex_name TEXT,
+            dong         TEXT,
+            ho           TEXT,
+            area         TEXT,
+            unit_type    TEXT,
+            direction    TEXT,
+            price_text   TEXT,
+            options      TEXT,
+            memo         TEXT,
+            created_at   TEXT
+        )
+        """)
+
         # ✅ 혹시 예전 DB에 batch_id 컬럼이 없던 경우 대비 (마이그레이션)
         cur.execute("PRAGMA table_info(price_history)")
         cols = [r["name"] for r in cur.fetchall()]
@@ -279,6 +297,47 @@ def read_history(uid: str = None) -> List[Dict[str, Any]]:
         else:
             cur.execute("SELECT * FROM price_history ORDER BY seen_at DESC")
         return [dict(r) for r in cur.fetchall()]
+
+
+# =========================
+# Visited Properties
+# =========================
+def insert_visited(row: Dict[str, Any]) -> int:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO visited_properties
+              (visit_date, complex_name, dong, ho, area, unit_type,
+               direction, price_text, options, memo, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            row.get("visit_date"), row.get("complex_name"), row.get("dong"),
+            row.get("ho"), row.get("area"), row.get("unit_type"),
+            row.get("direction"), row.get("price_text"),
+            json.dumps(row.get("options", []), ensure_ascii=False),
+            row.get("memo"), _now_iso(),
+        ))
+        conn.commit()
+        return cur.lastrowid
+
+
+def read_visited() -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM visited_properties ORDER BY visit_date DESC, id DESC")
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        try:
+            r["options"] = json.loads(r["options"] or "[]")
+        except Exception:
+            r["options"] = []
+    return rows
+
+
+def delete_visited(row_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM visited_properties WHERE id = ?", (row_id,))
+        conn.commit()
 
 
 # =========================

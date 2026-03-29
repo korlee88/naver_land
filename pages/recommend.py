@@ -261,6 +261,9 @@ if df.empty:
 # ══════════════════════════════════════════════
 st.markdown("#### 🏆 핵심 추천 매물")
 
+# ── 결과 자리 선점 (확인 후 맨 위에 표시) ──
+result_slot = st.empty()
+
 # ══════════════════════════════════════════════
 # [상단] 프리셋 + SET 버튼
 # ══════════════════════════════════════════════
@@ -320,10 +323,16 @@ with p_cols[3]:
         ap_label = "<div style='font-size:10px;color:#94a3b8;margin-bottom:4px;'>✏️ 직접 입력 기준</div>"
     st.markdown(ap_label, unsafe_allow_html=True)
 
-    if st.button("🎯 SET 실행", type="primary", use_container_width=True):
+    btn_c1, btn_c2 = st.columns(2)
+    if btn_c1.button("🎯 SET 실행", type="primary", use_container_width=True):
         st.session_state.run_params   = {k: st.session_state[f"sp_{k}"] for k in DEFAULT_PARAMS}
         st.session_state.show_confirm = True
         st.session_state.show_results = False
+    if btn_c2.button("↩️ 기본값", use_container_width=True):
+        for k, v in DEFAULT_PARAMS.items():
+            st.session_state[f"sp_{k}"] = v
+        st.session_state.active_preset = None
+        st.rerun()
 
     if st.session_state.show_confirm:
         ok_col, cancel_col = st.columns(2)
@@ -399,91 +408,91 @@ with st.expander("⚙️ 점수 설정", expanded=False):
 
 
 # ══════════════════════════════════════════════
-# 결과 출력
+# 결과 출력 (result_slot — 헤더 바로 아래 표시)
 # ══════════════════════════════════════════════
 if st.session_state.show_results and st.session_state.run_params:
-    p = st.session_state.run_params
+    with result_slot.container():
+        p = st.session_state.run_params
 
-    # 초품아 검사 결과 미리 표시
-    if kakao_key and p.get("choguma_score", 0) > 0:
-        with st.spinner("🏫 초품아 여부 확인 중..."):
+        # 초품아 검사 결과 미리 표시
+        if kakao_key and p.get("choguma_score", 0) > 0:
+            with st.spinner("🏫 초품아 여부 확인 중..."):
+                choguma_info = {}
+                for cn in sel:
+                    ok, info = _check_choguma(cn, kakao_key, int(p["choguma_radius"]))
+                    choguma_info[cn] = (ok, info)
+            cols_ch = st.columns(len(sel))
+            for i, cn in enumerate(sel):
+                ok, info = choguma_info[cn]
+                icon = "🏫✅" if ok else "🏫❌"
+                cols_ch[i].markdown(
+                    f"<div style='font-size:11px;padding:6px;background:"
+                    f"{'#dcfce7' if ok else '#f1f5f9'};border-radius:6px;'>"
+                    f"<b>{icon} {cn}</b><br>{info}</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
             choguma_info = {}
-            for cn in sel:
-                ok, info = _check_choguma(cn, kakao_key, int(p["choguma_radius"]))
-                choguma_info[cn] = (ok, info)
-        cols_ch = st.columns(len(sel))
-        for i, cn in enumerate(sel):
-            ok, info = choguma_info[cn]
-            icon = "🏫✅" if ok else "🏫❌"
-            cols_ch[i].markdown(
-                f"<div style='font-size:11px;padding:6px;background:"
-                f"{'#dcfce7' if ok else '#f1f5f9'};border-radius:6px;'>"
-                f"<b>{icon} {cn}</b><br>{info}</div>",
-                unsafe_allow_html=True,
-            )
-    else:
-        choguma_info = {}
 
-    parts = [
-        _compute_custom(df[df["complex_name"] == cn].copy(), p, kakao_key)
-        for cn in sel if not df[df["complex_name"] == cn].empty
-    ]
-    if not parts:
-        st.info("계산할 데이터가 없습니다."); st.stop()
+        parts = [
+            _compute_custom(df[df["complex_name"] == cn].copy(), p, kakao_key)
+            for cn in sel if not df[df["complex_name"] == cn].empty
+        ]
+        if not parts:
+            st.info("계산할 데이터가 없습니다."); st.stop()
 
-    df_sc      = pd.concat(parts, ignore_index=True)
-    latest_day = df_sc["uploadday"].max()
-    # 단지별 마지막 일자 기준으로 필터링 (단지마다 최신 데이터 날짜가 달라도 반영)
-    df_latest  = df_sc[
-        df_sc["uploadday"] == df_sc.groupby("complex_name")["uploadday"].transform("max")
-    ].copy()
-    if "uid" in df_latest.columns:
-        df_latest = df_latest.sort_values("score", ascending=False).drop_duplicates("uid")
+        df_sc      = pd.concat(parts, ignore_index=True)
+        latest_day = df_sc["uploadday"].max()
+        df_latest  = df_sc[
+            df_sc["uploadday"] == df_sc.groupby("complex_name")["uploadday"].transform("max")
+        ].copy()
+        if "uid" in df_latest.columns:
+            df_latest = df_latest.sort_values("score", ascending=False).drop_duplicates("uid")
 
-    top5 = df_latest.sort_values("score", ascending=False).head(5).reset_index(drop=True)
+        top5 = df_latest.sort_values("score", ascending=False).head(5).reset_index(drop=True)
 
-    # ── TOP 5 카드 ──────────────────────────
-    st.markdown(
-        f'<div class="sec">🥇 TOP 5 추천 매물 '
-        f'<span style="font-size:10px;color:#94a3b8;">'
-        f'기준일: {latest_day.strftime("%Y-%m-%d")}</span></div>',
-        unsafe_allow_html=True,
-    )
-
-    card_cols = st.columns(5)
-    for i, row in top5.iterrows():
-        badges   = get_badges(row)
-        parts_d  = [p_str for p_str in [
-            f"{row['dong']}동"   if pd.notna(row.get("dong"))      and str(row.get("dong"))      not in ("","nan") else "",
-            f"{row['area']}"     if pd.notna(row.get("area"))                                                       else "",
-            f"{row['floor']}층"  if pd.notna(row.get("floor"))                                                      else "",
-            f"{row['direction']}"if pd.notna(row.get("direction")) and str(row.get("direction")) not in ("","nan") else "",
-        ] if p_str]
-        drop_txt  = f"▼{row['drop_eok']:.2f}억 하락" if row.get("drop_eok", 0) > 0 else ""
-        date_str  = f"확인: {row['confirm_date']}" if pd.notna(row.get("confirm_date")) and str(row.get("confirm_date")) not in ("","nan") else ""
-        memo_str  = str(row.get("memo",""))[:25] if pd.notna(row.get("memo")) and str(row.get("memo")) not in ("","nan") else ""
-
-        def _fmt(v, lbl):
-            if not v: return ""
-            return f'<span style="color:{"#16a34a" if v>0 else "#dc2626"};font-size:9px;">{lbl}{"+" if v>0 else ""}{v:.0f}</span>'
-
-        choguma_badge = (
-            '<span class="rec-badge badge-new">🏫 초품아</span>'
-            if row.get("score_choguma", 0) > 0 else ""
+        # ── TOP 5 카드 ──────────────────────────
+        st.markdown(
+            f'<div class="sec">🥇 TOP 5 추천 매물 '
+            f'<span style="font-size:10px;color:#94a3b8;">'
+            f'기준일: {latest_day.strftime("%Y-%m-%d")}</span></div>',
+            unsafe_allow_html=True,
         )
-        breakdown = " ".join(filter(None, [
-            _fmt(row.get("score_price",   0),"가격"),
-            _fmt(row.get("score_floor",   0),"층"),
-            _fmt(row.get("score_dir",     0),"방향"),
-            _fmt(row.get("score_area",    0),"평형"),
-            _fmt(row.get("score_drop",    0),"하락"),
-            _fmt(row.get("score_memo",    0),"메모"),
-            _fmt(row.get("score_choguma", 0),"초품아"),
-        ]))
-        bar_w = max(0, min(100, int((row["score"] + 50) / 150 * 100)))
 
-        with card_cols[i]:
-            st.markdown(f"""
+        card_cols = st.columns(5)
+        for i, row in top5.iterrows():
+            badges   = get_badges(row)
+            parts_d  = [p_str for p_str in [
+                f"{row['dong']}동"    if pd.notna(row.get("dong"))      and str(row.get("dong"))      not in ("","nan") else "",
+                f"{row['area']}"      if pd.notna(row.get("area"))                                                       else "",
+                f"{row['floor']}층"   if pd.notna(row.get("floor"))                                                      else "",
+                f"{row['direction']}" if pd.notna(row.get("direction")) and str(row.get("direction")) not in ("","nan") else "",
+            ] if p_str]
+            drop_txt = f"▼{row['drop_eok']:.2f}억 하락" if row.get("drop_eok", 0) > 0 else ""
+            date_str = f"확인: {row['confirm_date']}" if pd.notna(row.get("confirm_date")) and str(row.get("confirm_date")) not in ("","nan") else ""
+            memo_str = str(row.get("memo",""))[:25] if pd.notna(row.get("memo")) and str(row.get("memo")) not in ("","nan") else ""
+
+            def _fmt(v, lbl):
+                if not v: return ""
+                return f'<span style="color:{"#16a34a" if v>0 else "#dc2626"};font-size:9px;">{lbl}{"+" if v>0 else ""}{v:.0f}</span>'
+
+            choguma_badge = (
+                '<span class="rec-badge badge-new">🏫 초품아</span>'
+                if row.get("score_choguma", 0) > 0 else ""
+            )
+            breakdown = " ".join(filter(None, [
+                _fmt(row.get("score_price",   0), "가격"),
+                _fmt(row.get("score_floor",   0), "층"),
+                _fmt(row.get("score_dir",     0), "방향"),
+                _fmt(row.get("score_area",    0), "평형"),
+                _fmt(row.get("score_drop",    0), "하락"),
+                _fmt(row.get("score_memo",    0), "메모"),
+                _fmt(row.get("score_choguma", 0), "초품아"),
+            ]))
+            bar_w = max(0, min(100, int((row["score"] + 50) / 150 * 100)))
+
+            with card_cols[i]:
+                st.markdown(f"""
 <div class="rec-card">
   <div style="display:flex;justify-content:space-between;align-items:center;">
     <span class="rec-rank">{RANK_EMOJIS[i]}</span>
@@ -500,21 +509,21 @@ if st.session_state.show_results and st.session_state.run_params:
   <div class="score-bar-bg"><div class="score-bar-fill" style="width:{bar_w}%;"></div></div>
 </div>""", unsafe_allow_html=True)
 
-    # ── 전체 순위표 (compact) ───────────────
-    st.markdown('<div class="sec" style="margin-top:14px;">📋 전체 순위</div>', unsafe_allow_html=True)
+        # ── 전체 순위표 ──────────────────────
+        st.markdown('<div class="sec" style="margin-top:14px;">📋 전체 순위</div>', unsafe_allow_html=True)
 
-    want = ["complex_name","eok","score","score_price","score_floor","score_dir",
-            "score_area","score_drop","score_new","score_conf","score_memo",
-            "floor","direction","area","dong","memo"]
-    show_cols = [c for c in want if c in df_latest.columns]
-    df_show = df_latest[show_cols].sort_values("score", ascending=False).reset_index(drop=True)
-    df_show.index += 1
-    df_show.rename(columns={
-        "complex_name":"단지","eok":"가격(억)","score":"총점",
-        "score_price":"가격점","score_floor":"층수점","score_dir":"방향점",
-        "score_area":"평형점","score_drop":"하락점","score_new":"신규점",
-        "score_conf":"확인점","score_memo":"메모점",
-        "floor":"층","direction":"방향","area":"평형","dong":"동","memo":"메모",
-    }, inplace=True)
+        want = ["complex_name","eok","score","score_price","score_floor","score_dir",
+                "score_area","score_drop","score_new","score_conf","score_memo",
+                "floor","direction","area","dong","memo"]
+        show_cols = [c for c in want if c in df_latest.columns]
+        df_show = df_latest[show_cols].sort_values("score", ascending=False).reset_index(drop=True)
+        df_show.index += 1
+        df_show.rename(columns={
+            "complex_name":"단지","eok":"가격(억)","score":"총점",
+            "score_price":"가격점","score_floor":"층수점","score_dir":"방향점",
+            "score_area":"평형점","score_drop":"하락점","score_new":"신규점",
+            "score_conf":"확인점","score_memo":"메모점",
+            "floor":"층","direction":"방향","area":"평형","dong":"동","memo":"메모",
+        }, inplace=True)
 
-    st.dataframe(df_show, use_container_width=True, height=320)
+        st.dataframe(df_show, use_container_width=True, height=320)

@@ -112,7 +112,8 @@ for row_start in range(0, len(trend_names), COLS_PER_ROW):
             ),
             yaxis2=dict(overlaying="y", side="right", showticklabels=False, showgrid=False),
         )
-        chart_cols[col_idx].plotly_chart(fig, use_container_width=True)
+        chart_cols[col_idx].plotly_chart(fig, use_container_width=True,
+                                     config={"staticPlot": True})
 
 
 # ══════════════════════════════════════════════
@@ -250,7 +251,7 @@ with col_bar:
             range=[p_min * 0.95, p_max * 1.08] if w_df["avg_price"].notna().any() else None,
         ),
     )
-    st.plotly_chart(fig_t, use_container_width=True)
+    st.plotly_chart(fig_t, use_container_width=True, config={"staticPlot": True})
 
 with col_stat:
     # 매물량 변화
