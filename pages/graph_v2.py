@@ -161,9 +161,9 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
 # [2] 단지별 가격 현황 요약
 # ══════════════════════════════════════════════
 st.divider()
-st.markdown('<div class="sec" style="margin-top:4px;">📋 단지별 가격 현황 <span style="font-size:10px;color:#94a3b8;font-weight:400;">· 중상층(11층 이상) 매물 기준, 최근 2주</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="sec" style="margin-top:4px;">📋 단지별 가격 현황 <span style="font-size:10px;color:#94a3b8;font-weight:400;">· 중상층(11층 이상) 매물 기준, 최근 1주</span></div>', unsafe_allow_html=True)
 
-CUT_RECENT = pd.Timestamp(datetime.now() - timedelta(days=14))
+CUT_RECENT = pd.Timestamp(datetime.now() - timedelta(days=7))
 
 summary_rows = []
 for cname in sel:
