@@ -10,10 +10,25 @@ import plotly.graph_objects as go
 
 from utils_style import inject_korean_font
 from utils_auth  import require_auth
+import re as _re
+
 from utils_graph import (
     build_df, make_daily, render_sidebar,
     PALETTE, SHARED_CSS,
 )
+
+# 중상층 기준: 11층 이상 (저층 1~5, 중층 6~10, 중상층 11층+)
+MID_HIGH_FLOOR = 11
+
+def _parse_floor(val) -> int | None:
+    """floor 컬럼에서 현재 층수 추출. 예) '15/25층' → 15"""
+    if not val or (isinstance(val, float) and val != val):
+        return None
+    s = str(val).strip()
+    if s.startswith(("저", "지", "반")):
+        return 1
+    m = _re.match(r"^(\d+)", s)
+    return int(m.group(1)) if m else None
 
 inject_korean_font()
 require_auth()
@@ -61,14 +76,33 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
 
     for col_idx, cname in enumerate(row_items):
         idx   = row_start + col_idx
-        dfc   = df[df["complex_name"] == cname]
+        dfc   = df[df["complex_name"] == cname].copy()
         color = PALETTE[idx % len(PALETTE)]
 
         if dfc.empty:
             chart_cols[col_idx].caption(f"{cname} — 데이터 없음")
             continue
 
-        d2   = make_daily(dfc, drop_th)
+        # 중상층(11층 이상) 필터링
+        if "floor" in dfc.columns:
+            dfc["_floor_n"] = dfc["floor"].apply(_parse_floor)
+            dfc_mid = dfc[dfc["_floor_n"] >= MID_HIGH_FLOOR]
+        else:
+            dfc_mid = dfc
+
+        # 중상층 데이터가 없으면 전체 사용 (코멘트에 명시)
+        use_all = dfc_mid.empty
+        plot_df = dfc if use_all else dfc_mid
+
+        total_n   = len(dfc)
+        mid_n     = len(dfc_mid)
+        floor_comment = (
+            f"⚠️ 중상층 데이터 없음 — 전체 {total_n}건 기준"
+            if use_all else
+            f"🏢 중상층(11층 이상) {mid_n}건 / 전체 {total_n}건 기준 트렌드"
+        )
+
+        d2   = make_daily(plot_df, drop_th)
         x    = d2["uploadday"]
         mask = x.notna() & d2["min_eok"].notna()
 
@@ -120,21 +154,27 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
         )
         chart_cols[col_idx].plotly_chart(fig, use_container_width=True,
                                          config={"staticPlot": True})
+        chart_cols[col_idx].caption(floor_comment)
 
 
 # ══════════════════════════════════════════════
 # [2] 단지별 가격 현황 요약
 # ══════════════════════════════════════════════
 st.divider()
-st.markdown('<div class="sec" style="margin-top:4px;">📋 단지별 가격 현황</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec" style="margin-top:4px;">📋 단지별 가격 현황 <span style="font-size:10px;color:#94a3b8;font-weight:400;">· 중상층(11층 이상) 매물 기준, 최근 2주</span></div>', unsafe_allow_html=True)
 
 CUT_RECENT = pd.Timestamp(datetime.now() - timedelta(days=14))
 
 summary_rows = []
 for cname in sel:
-    dfc     = df[df["complex_name"] == cname]
+    dfc = df[df["complex_name"] == cname].copy()
     if dfc.empty:
         continue
+    # 중상층 필터 (없으면 전체)
+    if "floor" in dfc.columns:
+        dfc["_floor_n"] = dfc["floor"].apply(_parse_floor)
+        dfc_m = dfc[dfc["_floor_n"] >= MID_HIGH_FLOOR]
+        dfc   = dfc_m if not dfc_m.empty else dfc
     recent  = dfc[dfc["uploadday"] >= CUT_RECENT]
     older   = dfc[dfc["uploadday"] <  CUT_RECENT]
 
