@@ -388,15 +388,33 @@ def delete_listing_by_uid(uid: str, reason: str = "") -> int:
 
 
 def delete_history_by_ids(ids: List[int]) -> int:
-    """price_history에서 id 목록 삭제"""
+    """price_history에서 id 목록 삭제 + 해당 uid 블랙리스트 등록 (재입력 방지)"""
     if not ids:
         return 0
 
     placeholders = ",".join(["?"] * len(ids))
     with get_conn() as conn:
         cur = conn.cursor()
+
+        # 삭제할 uid 먼저 수집
+        cur.execute(f"SELECT DISTINCT uid FROM price_history WHERE id IN ({placeholders})", ids)
+        uids = [r["uid"] for r in cur.fetchall()]
+
+        # price_history 삭제
         cur.execute(f"DELETE FROM price_history WHERE id IN ({placeholders})", ids)
         deleted = cur.rowcount
+
+        # uid별 처리: 블랙리스트 등록 + 남은 history 없으면 listings도 삭제
+        for uid in uids:
+            cur.execute("SELECT COUNT(*) AS cnt FROM price_history WHERE uid = ?", (uid,))
+            remaining = int(cur.fetchone()["cnt"])
+            if remaining == 0:
+                cur.execute("DELETE FROM listings WHERE uid = ?", (uid,))
+            cur.execute("""
+                INSERT OR REPLACE INTO deleted_uids (uid, deleted_at, reason)
+                VALUES (?, ?, ?)
+            """, (uid, _now_iso(), "RAW 관리에서 삭제"))
+
         conn.commit()
         return deleted
 
