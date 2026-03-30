@@ -24,7 +24,42 @@ GRADE_INFO = {
 }
 
 st.markdown("#### 🌅 동별 조망(뻥뷰) 관리")
+
+# ── 사용 방법 안내 ─────────────────────────────
+with st.expander("📖 사용 방법 보기", expanded=False):
+    st.markdown("""
+**이 페이지는 단지별 동의 뻥뷰(조망) 등급을 관리하고, 핵심 추천 매물 점수에 자동 반영합니다.**
+
+---
+
+**STEP 1 — 분석 데이터 일괄 저장 (처음 한 번만)**
+> 네이버맵 위성/지도 분석 결과가 이미 아래에 입력되어 있습니다.
+> 처음 사용 시 아래 **"📥 분석 데이터 일괄 저장"** 섹션을 열고
+> **"💾 전체 저장"** 버튼을 누르면 모든 단지 데이터가 DB에 저장됩니다.
+
+**STEP 2 — 개별 동 추가 또는 수정 (필요할 때)**
+> 씨드 데이터에 없는 동이나 등급을 바꾸고 싶을 때
+> 아래 **"✏️ 동별 조망 직접 입력"** 폼에서 단지명·동·등급을 선택하고 저장합니다.
+> 같은 단지+동이 이미 있으면 **덮어씁니다 (수정)**.
+
+**STEP 3 — 현황 확인 및 삭제**
+> 저장된 전체 조망 데이터를 아래 표에서 확인합니다.
+> 잘못 입력된 항목은 **"🗑️ 항목 삭제"** 섹션에서 삭제합니다.
+
+---
+
+| 등급 | 의미 | 추천 점수 |
+|------|------|-----------|
+| **S** | 완전 개방 (공원·전답 직면) | +25점 |
+| **A** | 양호 조망 (소로·학교 너머 개방) | +15점 |
+| **B** | 부분 조망 (도로 너머 저층 주거) | +5점 |
+| **C** | 무조망 (인접 동·도로 차단) | 0점 |
+
+> **최저층**: 해당 등급이 적용되는 최소 층수. 예) 최저층 10 → 10층 이상에만 조망 점수 부여
+""")
+
 st.caption("등급: S(+25점) 완전 개방  |  A(+15점) 양호  |  B(+5점) 부분  |  C(0점) 무조망")
+st.divider()
 
 # ── 단지명 목록 ───────────────────────────────
 @st.cache_data(show_spinner=False, ttl=60)
@@ -252,9 +287,11 @@ def _find_complex(keyword) -> str | None:
     return None
 
 
-# ── 씨드 데이터 입력 버튼 ───────────────────
-with st.expander("📥 네이버맵 분석 데이터 일괄 입력 (더샵지제역센트럴파크)", expanded=False):
-    st.caption("위성/지도 분석 결과를 DB에 저장합니다. 이미 저장된 항목은 덮어씁니다.")
+# ── STEP 1: 씨드 데이터 일괄 저장 ──────────────
+st.markdown("**STEP 1 — 📥 분석 데이터 일괄 저장**")
+st.caption("처음 한 번만 실행하면 됩니다. 이미 저장된 항목은 덮어씁니다.")
+with st.expander("분석 데이터 미리보기 및 저장 (더샵지제역·센트럴자이·굿모닝힐맘시티·동문디이스트)", expanded=False):
+    st.caption("아래 목록을 확인한 후 저장 버튼을 누르세요.")
 
     preview_rows = []
     for bl_key, dong, grade, min_floor, notes in SEED_DATA:
@@ -267,26 +304,31 @@ with st.expander("📥 네이버맵 분석 데이터 일괄 입력 (더샵지제
     st.dataframe(pd.DataFrame(preview_rows), use_container_width=True,
                  hide_index=True, height=250)
 
-    if st.button("💾 위 데이터 전체 저장", type="primary"):
-        ok = fail = 0
-        for bl_key, dong, grade, min_floor, notes in SEED_DATA:
-            cn = _find_complex(bl_key)
-            if cn:
-                upsert_view_score(cn, dong, grade, min_floor, notes)
-                ok += 1
-            else:
-                fail += 1
-        msg = f"✅ {ok}건 저장 완료"
-        if fail:
-            msg += f" / ⚠️ {fail}건 단지명 미매칭 (직접 입력 필요)"
-        st.success(msg)
-        st.rerun()
+    col_btn, col_info = st.columns([1, 3])
+    with col_btn:
+        if st.button("💾 전체 저장", type="primary", use_container_width=True):
+            ok = fail = 0
+            for bl_key, dong, grade, min_floor, notes in SEED_DATA:
+                cn = _find_complex(bl_key)
+                if cn:
+                    upsert_view_score(cn, dong, grade, min_floor, notes)
+                    ok += 1
+                else:
+                    fail += 1
+            msg = f"✅ {ok}건 저장 완료"
+            if fail:
+                msg += f" / ⚠️ {fail}건 단지명 미매칭 (STEP 2에서 직접 입력)"
+            st.success(msg)
+            st.rerun()
+    with col_info:
+        st.caption("저장 후 아래 STEP 3 표에서 결과를 확인하세요.")
 
 # ══════════════════════════════════════════════
-# 직접 입력 / 수정 폼
+# STEP 2: 직접 입력 / 수정 폼
 # ══════════════════════════════════════════════
 st.divider()
-st.markdown("**✏️ 동별 조망 직접 입력**")
+st.markdown("**STEP 2 — ✏️ 동별 조망 직접 입력 / 수정**")
+st.caption("씨드 데이터에 없거나 등급을 바꾸고 싶은 동을 추가하세요. 같은 단지+동이면 덮어씁니다.")
 
 with st.form("view_form", clear_on_submit=True):
     fc1, fc2, fc3, fc4 = st.columns([3, 1, 1, 3])
@@ -310,10 +352,11 @@ with st.form("view_form", clear_on_submit=True):
             st.warning("단지명과 동을 입력해 주세요.")
 
 # ══════════════════════════════════════════════
-# 저장된 목록
+# STEP 3: 저장된 목록 + 삭제
 # ══════════════════════════════════════════════
 st.divider()
-st.markdown("**📋 저장된 조망 데이터**")
+st.markdown("**STEP 3 — 📋 저장된 조망 데이터 확인 및 관리**")
+st.caption("현재 DB에 저장된 전체 조망 등급 목록입니다. STEP 1 저장 후 여기서 결과를 확인하세요.")
 
 rows = read_view_scores()
 if not rows:
@@ -330,7 +373,7 @@ show = [c for c in ["단지", "동", "등급", "점수", "최저층", "비고"] 
 st.dataframe(df_v[show], use_container_width=True, hide_index=True, height=350)
 
 # ── 삭제 ──────────────────────────────────────
-with st.expander("🗑️ 항목 삭제"):
+with st.expander("🗑️ 항목 삭제 (잘못 입력된 항목 제거)"):
     id_opts = {f"{r['단지']} {r['동']}동 ({r['등급']})": r["id"]
                for r in df_v.to_dict("records")}
     sel_lbl = st.selectbox("삭제할 항목", list(id_opts.keys()))
