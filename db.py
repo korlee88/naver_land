@@ -215,6 +215,14 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
             conn.commit()
             return "insert", "history"
 
+        # 메모 취합: 기존 메모와 새 메모를 중복 없이 합산
+        existing_memo = (existing.get("memo") or "").strip()
+        new_memo      = (row.get("memo") or "").strip()
+        if new_memo and new_memo not in existing_memo:
+            merged_memo = (existing_memo + " / " + new_memo) if existing_memo else new_memo
+        else:
+            merged_memo = existing_memo or new_memo or None
+
         # UPDATE listings
         cur.execute("""
         UPDATE listings SET
@@ -244,7 +252,7 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
             row.get("confirm_date"),
             row.get("provider"),
             row.get("office"),
-            row.get("memo"),
+            merged_memo,
             row.get("raw_block"),
             now,
             now,
