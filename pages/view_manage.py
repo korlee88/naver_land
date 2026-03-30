@@ -1,0 +1,204 @@
+"""
+view_manage.py  ─  동별 조망(뻥뷰) 점수 관리
+위성/지도 분석 결과를 입력하고 추천 점수에 반영합니다.
+"""
+
+import pandas as pd
+import streamlit as st
+
+from db import init_db, upsert_view_score, read_view_scores, delete_view_score, GRADE_SCORE, read_listings
+from utils_style import inject_korean_font
+from utils_auth import require_auth
+from utils_graph import build_df, clean_name
+
+inject_korean_font()
+require_auth()
+init_db()
+
+# ── 등급 설명 ─────────────────────────────────
+GRADE_INFO = {
+    "S": ("완전 개방", "#16a34a", 25),
+    "A": ("양호 조망", "#2563eb", 15),
+    "B": ("부분 조망", "#d97706",  5),
+    "C": ("무조망",   "#94a3b8",  0),
+}
+
+st.markdown("#### 🌅 동별 조망(뻥뷰) 관리")
+st.caption("등급: S(+25점) 완전 개방  |  A(+15점) 양호  |  B(+5점) 부분  |  C(0점) 무조망")
+
+# ── 단지명 목록 ───────────────────────────────
+@st.cache_data(show_spinner=False, ttl=60)
+def _complex_names():
+    try:
+        df = build_df()
+        return sorted(df["complex_name"].dropna().unique().tolist()) if not df.empty else []
+    except Exception:
+        return []
+
+complex_names = _complex_names()
+
+# ══════════════════════════════════════════════
+# 분석 데이터 씨드 (네이버맵 분석 결과)
+# ══════════════════════════════════════════════
+SEED_DATA = [
+    # (단지명 키워드, 동, 등급, 최저층, 비고)
+    # ─ 더샵지제역센트럴파크 1BL ─
+    ("1BL", "103", "A", 10, "서향 저층 주거지 너머 개방"),
+    ("1BL", "104", "A", 10, "서향 저층 주거지 너머 개방"),
+    ("1BL", "105", "A", 10, "서향 저층 주거지 너머 개방"),
+    ("1BL", "106", "C",  0, "북향 철도·도로 직면 (소음)"),
+    ("1BL", "107", "C",  0, "북향 철도·도로 직면 (소음)"),
+    ("1BL", "108", "C",  0, "북향 철도·도로 직면 (소음)"),
+    ("1BL", "109", "C",  0, "동향 3BL 인접 차단"),
+    ("1BL", "110", "C",  0, "동향 3BL 인접 차단"),
+    ("1BL", "101", "B", 15, "서남향 저층 주거지"),
+    ("1BL", "102", "B", 15, "서남향 저층 주거지"),
+    ("1BL", "111", "B", 15, "남동향 부분 조망"),
+    ("1BL", "112", "B", 15, "남동향 부분 조망"),
+    ("1BL", "113", "B", 15, "남동향 부분 조망"),
+    ("1BL", "114", "A", 10, "남동향 초등학교·소로"),
+    ("1BL", "115", "A", 10, "남동향 초등학교·소로"),
+    ("1BL", "116", "A", 10, "남동향 초등학교·소로"),
+    ("1BL", "117", "A", 10, "남향 초등학교 방향"),
+    ("1BL", "118", "A",  8, "남향 초등학교·공원 양호"),
+    ("1BL", "119", "A",  8, "남향 초등학교·공원 양호"),
+    ("1BL", "120", "A",  8, "남향 초등학교·공원 양호"),
+    ("1BL", "121", "S",  1, "남향 공원 직면 전층 개방"),
+    ("1BL", "122", "C",  0, "단지 내부 동에 가려짐"),
+    ("1BL", "123", "C",  0, "단지 내부 동에 가려짐"),
+    ("1BL", "124", "C",  0, "단지 내부 동에 가려짐"),
+    ("1BL", "125", "C",  0, "단지 내부 동에 가려짐"),
+    ("1BL", "126", "C",  0, "단지 내부 동에 가려짐"),
+    # ─ 더샵지제역센트럴파크 2BL ─
+    ("2BL", "201", "B", 15, "남향 도로·상가"),
+    ("2BL", "202", "B", 15, "남향 도로·상가"),
+    ("2BL", "203", "B", 15, "남향 도로·상가"),
+    ("2BL", "204", "S",  1, "서향 미개발 공터 전층 개방"),
+    ("2BL", "205", "S",  1, "서향 미개발 공터 전층 개방"),
+    ("2BL", "206", "S",  1, "서향 미개발 공터 전층 개방"),
+    ("2BL", "207", "S",  1, "서향 미개발 공터 전층 개방"),
+    ("2BL", "208", "A",  8, "북서향 개방 공터"),
+    ("2BL", "209", "C",  0, "북향 1BL 인접 차단"),
+    ("2BL", "210", "C",  0, "북향 1BL 인접 차단"),
+    ("2BL", "211", "B", 20, "북동향 1BL 너머 부분 조망"),
+    ("2BL", "212", "B", 20, "북동향 1BL 너머 부분 조망"),
+    ("2BL", "213", "B", 20, "북동향 부분 조망"),
+    ("2BL", "214", "B", 15, "동남향 상업지·소로"),
+    ("2BL", "215", "B", 15, "동남향 상업지·소로"),
+    ("2BL", "216", "B", 15, "동향 상업지"),
+    ("2BL", "217", "B", 15, "동향 상업지"),
+    ("2BL", "218", "B", 15, "남동향 상업지"),
+    # ─ 더샵지제역센트럴파크 3BL ─
+    ("3BL", "301", "C",  0, "서향 1BL 인접 차단"),
+    ("3BL", "302", "C",  0, "서향 1BL 인접 차단"),
+    ("3BL", "303", "C",  0, "북향 철도·고속도로 직면"),
+    ("3BL", "304", "C",  0, "북향 철도·고속도로 직면"),
+    ("3BL", "305", "C",  0, "북향 철도·고속도로 직면"),
+    ("3BL", "306", "C",  0, "북향 철도·고속도로 직면"),
+    ("3BL", "307", "C",  0, "북향 철도·고속도로 직면"),
+    ("3BL", "308", "C",  0, "북향 철도·고속도로 직면"),
+    ("3BL", "309", "A",  1, "동향 개발 예정 공터 (현재 개방)"),
+    ("3BL", "310", "A",  1, "남동향 공터·소로"),
+    ("3BL", "311", "A",  1, "남동향 공터·소로"),
+    ("3BL", "312", "A",  1, "동향 개발 예정 공터 (현재 개방)"),
+    ("3BL", "313", "B", 15, "남향 상가·소로"),
+    ("3BL", "314", "B", 15, "남향 상가·소로"),
+    ("3BL", "315", "B", 15, "남향 상가·소로"),
+    ("3BL", "316", "B", 15, "남서향 상가"),
+]
+
+
+def _find_complex(keyword: str) -> str | None:
+    """단지명 목록에서 키워드 매칭"""
+    for cn in complex_names:
+        if keyword in cn:
+            return cn
+    return None
+
+
+# ── 씨드 데이터 입력 버튼 ───────────────────
+with st.expander("📥 네이버맵 분석 데이터 일괄 입력 (더샵지제역센트럴파크)", expanded=False):
+    st.caption("위성/지도 분석 결과를 DB에 저장합니다. 이미 저장된 항목은 덮어씁니다.")
+
+    preview_rows = []
+    for bl_key, dong, grade, min_floor, notes in SEED_DATA:
+        cn = _find_complex(bl_key)
+        label = cn if cn else f"(미매칭: {bl_key})"
+        icon, _, score = GRADE_INFO[grade]
+        preview_rows.append({"단지": label, "동": dong, "등급": grade, "최저층": min_floor,
+                              "점수": f"+{score}점", "비고": notes})
+
+    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True,
+                 hide_index=True, height=250)
+
+    if st.button("💾 위 데이터 전체 저장", type="primary"):
+        ok = fail = 0
+        for bl_key, dong, grade, min_floor, notes in SEED_DATA:
+            cn = _find_complex(bl_key)
+            if cn:
+                upsert_view_score(cn, dong, grade, min_floor, notes)
+                ok += 1
+            else:
+                fail += 1
+        msg = f"✅ {ok}건 저장 완료"
+        if fail:
+            msg += f" / ⚠️ {fail}건 단지명 미매칭 (직접 입력 필요)"
+        st.success(msg)
+        st.rerun()
+
+# ══════════════════════════════════════════════
+# 직접 입력 / 수정 폼
+# ══════════════════════════════════════════════
+st.divider()
+st.markdown("**✏️ 동별 조망 직접 입력**")
+
+with st.form("view_form", clear_on_submit=True):
+    fc1, fc2, fc3, fc4 = st.columns([3, 1, 1, 3])
+    cn_sel    = fc1.selectbox("단지명", ["직접입력"] + complex_names)
+    if cn_sel == "직접입력":
+        cn_sel = st.text_input("단지명 직접입력")
+    dong_in   = fc2.text_input("동", placeholder="101")
+    grade_in  = fc3.selectbox("등급", ["S", "A", "B", "C"])
+    min_fl_in = fc4.number_input("뻥뷰 최저층 (0=전층)", min_value=0, max_value=50, value=0)
+    notes_in  = st.text_input("비고", placeholder="남향 공원 직면, 소음 등")
+
+    g_icon, g_desc, g_score = GRADE_INFO[grade_in]
+    st.caption(f"선택 등급: **{grade_in}** ({g_desc}) → +{g_score}점")
+
+    if st.form_submit_button("저장", type="primary"):
+        if cn_sel and dong_in:
+            upsert_view_score(cn_sel, dong_in, grade_in, min_fl_in, notes_in)
+            st.success(f"저장: {cn_sel} {dong_in}동 — {grade_in}등급")
+            st.rerun()
+        else:
+            st.warning("단지명과 동을 입력해 주세요.")
+
+# ══════════════════════════════════════════════
+# 저장된 목록
+# ══════════════════════════════════════════════
+st.divider()
+st.markdown("**📋 저장된 조망 데이터**")
+
+rows = read_view_scores()
+if not rows:
+    st.caption("아직 입력된 데이터가 없습니다.")
+    st.stop()
+
+df_v = pd.DataFrame(rows)
+df_v["점수"] = df_v["grade"].map({k: f"+{v}점" for k, v in GRADE_SCORE.items()})
+df_v = df_v.rename(columns={
+    "complex_name": "단지", "dong": "동", "grade": "등급",
+    "min_floor": "최저층", "notes": "비고",
+})
+show = [c for c in ["단지", "동", "등급", "점수", "최저층", "비고"] if c in df_v.columns]
+st.dataframe(df_v[show], use_container_width=True, hide_index=True, height=350)
+
+# ── 삭제 ──────────────────────────────────────
+with st.expander("🗑️ 항목 삭제"):
+    id_opts = {f"{r['단지']} {r['동']}동 ({r['등급']})": r["id"]
+               for r in df_v.to_dict("records")}
+    sel_lbl = st.selectbox("삭제할 항목", list(id_opts.keys()))
+    if st.button("삭제 확인", type="primary"):
+        delete_view_score(id_opts[sel_lbl])
+        st.success("삭제되었습니다.")
+        st.rerun()

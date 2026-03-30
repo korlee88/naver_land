@@ -13,6 +13,7 @@ pg = st.navigation([
     st.Page("pages/recommend.py",   title="추천 매물",       icon="🏆"),
     st.Page("rawdata.py",           title="매물 입력",       icon="📝"),
     st.Page("pages/visited.py",     title="방문 매물 기록",  icon="🏠"),
+    st.Page("pages/view_manage.py", title="조망 관리",       icon="🌅"),
     st.Page("pages/raw_manage.py",  title="RAW 관리",        icon="🧹"),
     st.Page("pages/policy_news.py", title="부동산 뉴스",     icon="📰"),
     st.Page("pages/loan_info.py",   title="보금자리론",      icon="🏦"),
@@ -25,6 +26,7 @@ with st.sidebar:
     st.page_link("pages/recommend.py",   label="핵심 추천 매물",    icon="🏆")
     st.page_link("rawdata.py",           label="매물 데이터 입력",   icon="📝")
     st.page_link("pages/visited.py",     label="방문 매물 기록",     icon="🏠")
+    st.page_link("pages/view_manage.py", label="조망 관리",          icon="🌅")
     st.page_link("pages/raw_manage.py",  label="데이터 관리",        icon="🗂️")
     st.page_link("pages/policy_news.py", label="부동산 뉴스",        icon="📰")
     st.page_link("pages/loan_info.py",   label="보금자리론 정보",    icon="🏦")

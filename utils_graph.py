@@ -226,6 +226,25 @@ def _memo_score(memo_val):
     return score
 
 
+def _view_score(row, view_map):
+    """동별 조망 점수: DB의 view_scores 기준, 층수 미달 시 0점"""
+    cn   = str(row.get("complex_name") or "").strip().lower()
+    dong = str(row.get("dong") or "").strip()
+    info = view_map.get((cn, dong))
+    if not info:
+        return 0.0
+    floor_n = _parse_floor_n(row.get("floor"))
+    if floor_n is not None and floor_n < info["min_floor"]:
+        return 0.0
+    return float(info["score"])
+
+
+def _parse_floor_n(val):
+    if not val or (isinstance(val, float) and val != val): return None
+    m = _RE_FLOOR.match(str(val).strip())
+    return int(m.group(1)) if m else None
+
+
 def compute_score(dfc):
     dc = dfc.copy()
     dc["score_price"] = ((4.0 - dc["eok"]) / 0.1 * 5).round(1)
@@ -251,14 +270,22 @@ def compute_score(dfc):
     else:
         dc["score_conf"] = 0.0
 
-    dc["score_floor"] = dc["floor"].apply(_floor_score)     if "floor"     in dc.columns else 0.0
-    dc["score_dir"]   = dc["direction"].apply(_direction_score) if "direction" in dc.columns else 0.0
-    dc["score_area"]  = dc["area"].apply(_area_score)       if "area"      in dc.columns else 0.0
-    dc["score_memo"]  = dc["memo"].apply(_memo_score)       if "memo"      in dc.columns else 0.0
+    dc["score_floor"] = dc["floor"].apply(_floor_score)         if "floor"     in dc.columns else 0.0
+    dc["score_dir"]   = dc["direction"].apply(_direction_score)  if "direction" in dc.columns else 0.0
+    dc["score_area"]  = dc["area"].apply(_area_score)            if "area"      in dc.columns else 0.0
+    dc["score_memo"]  = dc["memo"].apply(_memo_score)            if "memo"      in dc.columns else 0.0
+
+    try:
+        from db import load_view_scores
+        view_map = load_view_scores()
+        dc["score_view"] = dc.apply(lambda r: _view_score(r, view_map), axis=1)
+    except Exception:
+        dc["score_view"] = 0.0
 
     dc["score"] = (
         dc["score_price"] + dc["score_drop"] + dc["score_new"] + dc["score_conf"]
         + dc["score_floor"] + dc["score_dir"] + dc["score_area"] + dc["score_memo"]
+        + dc["score_view"]
     ).round(1)
     return dc
 

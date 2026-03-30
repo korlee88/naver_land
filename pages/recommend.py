@@ -213,10 +213,19 @@ def _compute_custom(dfc, p, kakao_key=""):
     else:
         dc["score_choguma"] = 0.0
 
+    # 조망(뻥뷰) 점수
+    try:
+        from db import load_view_scores
+        from utils_graph import _view_score, _parse_floor_n  # noqa: F401
+        _view_map = load_view_scores()
+        dc["score_view"] = dc.apply(lambda r: _view_score(r, _view_map), axis=1)
+    except Exception:
+        dc["score_view"] = 0.0
+
     dc["score"] = (
         dc["score_price"] + dc["score_drop"] + dc["score_new"] + dc["score_conf"]
         + dc["score_floor"] + dc["score_dir"] + dc["score_area"] + dc["score_memo"]
-        + dc["score_choguma"]
+        + dc["score_choguma"] + dc["score_view"]
     ).round(1)
     return dc
 
@@ -487,6 +496,7 @@ if st.session_state.show_results and st.session_state.run_params:
                 _fmt(row.get("score_area",    0), "평형"),
                 _fmt(row.get("score_drop",    0), "하락"),
                 _fmt(row.get("score_memo",    0), "메모"),
+                _fmt(row.get("score_view",    0), "조망"),
                 _fmt(row.get("score_choguma", 0), "초품아"),
             ]))
             bar_w = max(0, min(100, int((row["score"] + 50) / 150 * 100)))

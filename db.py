@@ -102,6 +102,20 @@ def init_db() -> None:
         )
         """)
 
+        # 동별 조망(뻥뷰) 점수
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS view_scores (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            complex_name TEXT NOT NULL,
+            dong         TEXT NOT NULL,
+            grade        TEXT NOT NULL,
+            min_floor    INTEGER DEFAULT 0,
+            notes        TEXT,
+            updated_at   TEXT,
+            UNIQUE(complex_name, dong)
+        )
+        """)
+
         # ✅ 혹시 예전 DB에 batch_id 컬럼이 없던 경우 대비 (마이그레이션)
         cur.execute("PRAGMA table_info(price_history)")
         cols = [r["name"] for r in cur.fetchall()]
@@ -310,6 +324,55 @@ def read_history(uid: str = None) -> List[Dict[str, Any]]:
 # =========================
 # Visited Properties
 # =========================
+# =========================
+# View Scores (동별 조망)
+# =========================
+GRADE_SCORE = {"S": 25, "A": 15, "B": 5, "C": 0}
+
+def upsert_view_score(complex_name: str, dong: str, grade: str,
+                      min_floor: int = 0, notes: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO view_scores (complex_name, dong, grade, min_floor, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(complex_name, dong) DO UPDATE SET
+                grade=excluded.grade, min_floor=excluded.min_floor,
+                notes=excluded.notes, updated_at=excluded.updated_at
+        """, (complex_name, dong, grade, min_floor, notes, _now_iso()))
+        conn.commit()
+
+
+def load_view_scores() -> Dict[tuple, Dict]:
+    """반환: {(complex_name_lower, dong): {"grade": .., "min_floor": .., "score": ..}}"""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM view_scores")
+        rows = [dict(r) for r in cur.fetchall()]
+    result = {}
+    for r in rows:
+        key = (r["complex_name"].strip().lower(), str(r["dong"]).strip())
+        result[key] = {
+            "grade":     r["grade"],
+            "min_floor": r["min_floor"] or 0,
+            "score":     GRADE_SCORE.get(r["grade"], 0),
+            "notes":     r["notes"] or "",
+        }
+    return result
+
+
+def read_view_scores() -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM view_scores ORDER BY complex_name, dong")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def delete_view_score(row_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM view_scores WHERE id = ?", (row_id,))
+        conn.commit()
+
+
 def insert_visited(row: Dict[str, Any]) -> int:
     with get_conn() as conn:
         cur = conn.cursor()
