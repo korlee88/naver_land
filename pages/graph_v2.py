@@ -70,8 +70,10 @@ st.markdown('<div class="sec">📊 가격 추이</div>', unsafe_allow_html=True)
 COLS_PER_ROW = 3
 Y_TICK = 0.2          # 2천만원 단위
 
-# 모든 단지의 중상층 데이터를 모아 공통 Y축 범위 계산
+# 모든 단지의 중상층 데이터를 모아 공통 Y·X축 범위 계산
+import math
 _all_vals = []
+_all_days = []
 for _cn in sel:
     _d = df[df["complex_name"] == _cn].copy()
     if "floor" in _d.columns:
@@ -80,16 +82,19 @@ for _cn in sel:
         _d  = _dm if not _dm.empty else _d
     if not _d.empty:
         _all_vals.extend(_d["eok"].dropna().tolist())
+        _all_days.extend(_d["uploadday"].dropna().tolist())
 
 if _all_vals:
-    _data_min = min(_all_vals)
-    _data_max = max(_all_vals)
-    # 2천만 단위로 내림/올림
-    import math
-    Y_MIN = math.floor(_data_min / Y_TICK) * Y_TICK
-    Y_MAX = max(4.2, math.ceil(_data_max / Y_TICK) * Y_TICK)
+    Y_MIN = math.floor(min(_all_vals) / Y_TICK) * Y_TICK
+    Y_MAX = max(4.2, math.ceil(max(_all_vals) / Y_TICK) * Y_TICK)
 else:
     Y_MIN, Y_MAX = 3.0, 4.2
+
+if _all_days:
+    X_MIN = min(_all_days)
+    X_MAX = max(_all_days)
+else:
+    X_MIN, X_MAX = None, None
 
 for row_start in range(0, len(sel), COLS_PER_ROW):
     row_items  = sel[row_start : row_start + COLS_PER_ROW]
@@ -161,7 +166,8 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             margin=dict(l=40, r=20, t=30, b=60),
             plot_bgcolor="white",
             legend=dict(orientation="h", y=-0.28, x=0, font=dict(size=9)),
-            xaxis=dict(tickfont=dict(size=8), tickangle=30),
+            xaxis=dict(tickfont=dict(size=8), tickangle=30,
+                       range=[X_MIN, X_MAX] if X_MIN is not None else None),
             yaxis=dict(
                 title="가격(억)", tickfont=dict(size=8),
                 showgrid=True, gridcolor="#f1f5f9",
