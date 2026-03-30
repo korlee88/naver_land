@@ -85,10 +85,10 @@ for _cn in sel:
         _all_days.extend(_d["uploadday"].dropna().tolist())
 
 if _all_vals:
-    Y_MIN = math.floor(min(_all_vals) / Y_TICK) * Y_TICK
+    Y_MIN = math.floor(price_sel[0] / Y_TICK) * Y_TICK   # 사이드바 필터 하한 기준
     Y_MAX = max(4.2, math.ceil(max(_all_vals) / Y_TICK) * Y_TICK)
 else:
-    Y_MIN, Y_MAX = 3.0, 4.2
+    Y_MIN, Y_MAX = math.floor(price_sel[0] / Y_TICK) * Y_TICK, 4.2
 
 if _all_days:
     X_MIN = min(_all_days)
