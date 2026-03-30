@@ -68,7 +68,28 @@ with col_info:
 st.markdown('<div class="sec">📊 가격 추이</div>', unsafe_allow_html=True)
 
 COLS_PER_ROW = 3
-Y_MAX_DEFAULT = 4.2   # 기본 y축 상한 (억)
+Y_TICK = 0.2          # 2천만원 단위
+
+# 모든 단지의 중상층 데이터를 모아 공통 Y축 범위 계산
+_all_vals = []
+for _cn in sel:
+    _d = df[df["complex_name"] == _cn].copy()
+    if "floor" in _d.columns:
+        _d["_floor_n"] = _d["floor"].apply(_parse_floor)
+        _dm = _d[_d["_floor_n"] >= MID_HIGH_FLOOR]
+        _d  = _dm if not _dm.empty else _d
+    if not _d.empty:
+        _all_vals.extend(_d["eok"].dropna().tolist())
+
+if _all_vals:
+    _data_min = min(_all_vals)
+    _data_max = max(_all_vals)
+    # 2천만 단위로 내림/올림
+    import math
+    Y_MIN = math.floor(_data_min / Y_TICK) * Y_TICK
+    Y_MAX = max(4.2, math.ceil(_data_max / Y_TICK) * Y_TICK)
+else:
+    Y_MIN, Y_MAX = 3.0, 4.2
 
 for row_start in range(0, len(sel), COLS_PER_ROW):
     row_items  = sel[row_start : row_start + COLS_PER_ROW]
@@ -105,10 +126,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
         d2   = make_daily(plot_df, drop_th)
         x    = d2["uploadday"]
         mask = x.notna() & d2["min_eok"].notna()
-
-        # y축 상한: 데이터 최대값이 기본값 초과 시 데이터 최대값으로 자동 확장
-        y_max = max(Y_MAX_DEFAULT, float(d2["max_eok"].max()) * 1.03) if mask.any() else Y_MAX_DEFAULT
-        y_min = max(0, float(d2["min_eok"].min()) * 0.97) if mask.any() else 0
 
         fig = go.Figure()
 
@@ -148,8 +165,8 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             yaxis=dict(
                 title="가격(억)", tickfont=dict(size=8),
                 showgrid=True, gridcolor="#f1f5f9",
-                dtick=0.5, tickformat=".1f",
-                range=[y_min, y_max],
+                dtick=Y_TICK, tickformat=".1f",
+                range=[Y_MIN, Y_MAX],
             ),
         )
         chart_cols[col_idx].plotly_chart(fig, use_container_width=True,
