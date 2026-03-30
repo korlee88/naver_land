@@ -509,21 +509,3 @@ if st.session_state.show_results and st.session_state.run_params:
   <div class="score-bar-bg"><div class="score-bar-fill" style="width:{bar_w}%;"></div></div>
 </div>""", unsafe_allow_html=True)
 
-        # ── 전체 순위표 ──────────────────────
-        st.markdown('<div class="sec" style="margin-top:14px;">📋 전체 순위</div>', unsafe_allow_html=True)
-
-        want = ["complex_name","eok","score","score_price","score_floor","score_dir",
-                "score_area","score_drop","score_new","score_conf","score_memo",
-                "floor","direction","area","dong","memo"]
-        show_cols = [c for c in want if c in df_latest.columns]
-        df_show = df_latest[show_cols].sort_values("score", ascending=False).reset_index(drop=True)
-        df_show.index += 1
-        df_show.rename(columns={
-            "complex_name":"단지","eok":"가격(억)","score":"총점",
-            "score_price":"가격점","score_floor":"층수점","score_dir":"방향점",
-            "score_area":"평형점","score_drop":"하락점","score_new":"신규점",
-            "score_conf":"확인점","score_memo":"메모점",
-            "floor":"층","direction":"방향","area":"평형","dong":"동","memo":"메모",
-        }, inplace=True)
-
-        st.dataframe(df_show, use_container_width=True, height=320)
