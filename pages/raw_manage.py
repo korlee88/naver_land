@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 import io
 from datetime import datetime
-from db import read_history, read_listings, delete_history_by_ids, upsert_listing_and_history
+from db import init_db, read_history, read_listings, delete_history_by_ids, upsert_listing_and_history
 
 from utils_style import inject_korean_font
 from utils_auth import require_auth
@@ -98,6 +98,7 @@ def _restore_from_sheet(sheet_name: str) -> tuple[int, int, int]:
 
 inject_korean_font()
 require_auth()
+init_db()
 
 st.title("🧹 RAW 데이터 관리")
 
