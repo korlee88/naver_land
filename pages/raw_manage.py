@@ -100,7 +100,7 @@ inject_korean_font()
 require_auth()
 init_db()
 
-st.title("🧹 RAW 데이터 관리")
+st.markdown("#### 🧹 RAW 데이터 관리")
 
 # ── 구글시트 백업 / 복원 ────────────────────────────────────────────────────
 with st.expander("☁️ 구글시트 백업 / 복원", expanded=False):
@@ -199,13 +199,13 @@ if "seen_at" in df.columns:
     df = df.sort_values("seen_at", ascending=False)
 
 # ── 필터 ──────────────────────────────────────
-f1, f2, f3 = st.columns([2, 2, 3])
-
 if "complex_name" in df.columns:
     complex_opts = sorted(df["complex_name"].dropna().astype(str).unique().tolist())
-    sel_complex  = f1.multiselect("단지 (복수 선택 가능)", complex_opts, default=complex_opts)
+    sel_complex  = st.multiselect("단지 선택", complex_opts, default=complex_opts)
 else:
     sel_complex = []
+
+f2, f3 = st.columns([1, 2])
 
 if "dong" in df.columns:
     dong_opts = ["전체"] + sorted(df["dong"].dropna().astype(str).unique().tolist())
