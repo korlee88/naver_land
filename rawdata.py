@@ -268,10 +268,9 @@ raw = st.text_area(
 
 opt_col, btn_col = st.columns([3, 1])
 with opt_col:
-    oc1, oc2, oc3 = st.columns(3)
-    keep_raw   = oc1.checkbox("원문 유지", value=True)
-    keep_memo  = oc2.checkbox("메모 유지", value=True)
-    use_gsheet = oc3.checkbox("구글시트", value=True)
+    oc1, oc2 = st.columns(2)
+    keep_raw  = oc1.checkbox("원문 유지", value=True)
+    keep_memo = oc2.checkbox("메모 유지", value=True)
 with btn_col:
     do_parse = st.button("정리하기", use_container_width=True)
 
@@ -354,15 +353,6 @@ if do_save:
     if blocked:
         msg += f" / 삭제된 매물 차단 {blocked}건"
     st.success(msg)
-
-    if use_gsheet:
-        batch_id = records[0].get("batch_id", datetime.now().strftime("%Y-%m-%d"))
-        try:
-            rows_2d = _to_gsheet_rows(records, batch_id)
-            ok, fail, last = _push_gsheet(rows_2d)
-            st.success(f"구글시트 — 성공 {ok} / 실패 {fail} (응답: {last})")
-        except Exception as e:
-            st.warning(f"구글시트 저장 실패 (로컬DB는 저장됨): {e}")
 
     # 저장 완료 후 입력 초기화
     st.session_state["df_parsed"] = None

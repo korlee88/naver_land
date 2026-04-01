@@ -1,10 +1,36 @@
 # pages/raw_manage.py
 import streamlit as st
 import pandas as pd
+import requests
+from datetime import datetime
 from db import read_history, read_listings, delete_history_by_ids
 
 from utils_style import inject_korean_font
 from utils_auth import require_auth
+
+GAS_URL   = "https://script.google.com/macros/s/AKfycbyeOnBIObdLpqfrNlERenUSdKMWXi30EuXYWpuCNbq_pb6Zg0u2HllVIl4RVaUFpGKw7w/exec"
+GAS_TOKEN = "MY_SECRET_TOKEN"
+
+
+def _push_to_new_sheet(rows_2d: list[list], sheet_name: str) -> tuple[int, int, str]:
+    ok = fail = 0
+    last = ""
+    for i in range(0, len(rows_2d), 200):
+        chunk = rows_2d[i:i + 200]
+        try:
+            r = requests.post(
+                GAS_URL,
+                json={"token": GAS_TOKEN, "rows": chunk, "sheet_name": sheet_name},
+                timeout=30,
+            )
+            r.raise_for_status()
+            last = r.text
+            ok   += len(chunk) if str(last).upper().startswith("OK") else 0
+            fail += 0          if str(last).upper().startswith("OK") else len(chunk)
+        except Exception as e:
+            fail += len(chunk)
+            last = str(e)
+    return ok, fail, last
 inject_korean_font()
 require_auth()
 
@@ -106,3 +132,26 @@ if d3.button("🗑️ 선택 항목 삭제", type="primary",
     deleted = delete_history_by_ids(selected_ids)
     st.success(f"{deleted}건 삭제 완료")
     st.rerun()
+
+st.divider()
+
+# ── 구글시트 내보내기 ──────────────────────────────────────────────────────
+sheet_name = "매물등록 " + datetime.now().strftime("%y%m%d")
+st.caption(f"현재 필터된 **{len(view):,}건**을 구글시트 새 탭 **'{sheet_name}'** 으로 내보냅니다.")
+
+if st.button(f"📤 구글시트로 내보내기 ({sheet_name})", use_container_width=True):
+    EXPORT_COLS = ["seen_at", "complex_name", "dong", "area", "floor",
+                   "trade_type", "price_text", "confirm_date", "memo"]
+    header = ["날짜", "단지명", "동", "평형", "층", "거래유형", "금액", "확인매물", "메모"]
+    cols   = [c for c in EXPORT_COLS if c in view.columns]
+    rows_2d = [header] + view[cols].fillna("").astype(str).values.tolist()
+
+    with st.spinner("구글시트에 업로드 중…"):
+        try:
+            ok, fail, last = _push_to_new_sheet(rows_2d, sheet_name)
+            if fail == 0:
+                st.success(f"✅ {ok}건 업로드 완료 → 시트명: **{sheet_name}**")
+            else:
+                st.warning(f"성공 {ok} / 실패 {fail} (응답: {last})")
+        except Exception as e:
+            st.error(f"업로드 실패: {e}")
