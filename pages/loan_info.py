@@ -51,7 +51,7 @@ button[aria-label="keyboard_double_arrow_right"],
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏦 보금자리론 대출 정보")
+st.markdown("#### 🏦 보금자리론 대출 정보")
 st.caption("사전심사 기준 · 2026년 3월")
 
 # ════════════════════════════════════════════════════════════

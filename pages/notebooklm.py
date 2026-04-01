@@ -374,7 +374,7 @@ def make_full_text(df: pd.DataFrame, news: list, sel: list, news_days: int) -> s
 # ══════════════════════════════════════════════
 # UI
 # ══════════════════════════════════════════════
-st.title("📒 NotebookLM 내보내기")
+st.markdown("#### 📒 NotebookLM 내보내기")
 st.caption("뉴스 요약 · 추천 매물 · 매물 동향 · 금액대 분석을 하나의 텍스트로 묶어 복사합니다.")
 
 df_all = load_df()

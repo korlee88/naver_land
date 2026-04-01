@@ -205,7 +205,7 @@ if "complex_name" in df.columns:
 else:
     sel_complex = []
 
-f2, f3 = st.columns([1, 2])
+f2, f3 = st.columns([1, 3])
 
 if "dong" in df.columns:
     dong_opts = ["전체"] + sorted(df["dong"].dropna().astype(str).unique().tolist())
