@@ -19,7 +19,7 @@ require_auth()
 # ── 구글시트 설정 ─────────────────────────────────────────────────────────
 GAS_URL        = "https://script.google.com/macros/s/AKfycbyeOnBIObdLpqfrNlERenUSdKMWXi30EuXYWpuCNbq_pb6Zg0u2HllVIl4RVaUFpGKw7w/exec"
 GAS_TOKEN      = "MY_SECRET_TOKEN"
-GAS_SHEET_NAME = "APT_RAWDATA"
+GAS_SHEET_NAME = "기록"
 
 # ── 정규식 (모듈 로드 시 1회 컴파일) ──────────────────────────────────────
 _RE_COMPLEX = re.compile(
