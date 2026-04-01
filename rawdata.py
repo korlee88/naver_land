@@ -1,6 +1,5 @@
 # rawdata.py
 import re
-import requests
 from datetime import datetime
 
 import pandas as pd
@@ -15,11 +14,6 @@ from utils_auth import require_auth
 init_db()
 inject_korean_font()
 require_auth()
-
-# ── 구글시트 설정 ─────────────────────────────────────────────────────────
-GAS_URL        = "https://script.google.com/macros/s/AKfycbyeOnBIObdLpqfrNlERenUSdKMWXi30EuXYWpuCNbq_pb6Zg0u2HllVIl4RVaUFpGKw7w/exec"
-GAS_TOKEN      = "MY_SECRET_TOKEN"
-GAS_SHEET_NAME = "기록"
 
 # ── 정규식 (모듈 로드 시 1회 컴파일) ──────────────────────────────────────
 _RE_COMPLEX = re.compile(
@@ -98,164 +92,7 @@ def parse_block(block: str) -> dict:
     }
 
 
-# ── 구글시트 전송 ──────────────────────────────────────────────────────────
-def _to_gsheet_rows(records: list[dict], batch_id: str) -> list[list]:
-    today = datetime.now().strftime("%Y-%m-%d")
-    return [
-        [today, batch_id,
-         r.get("uid"), r.get("단지명"), r.get("동"), r.get("면적"),
-         r.get("층"), r.get("향"), r.get("거래유형"), r.get("가격"),
-         r.get("확인매물"), r.get("제공처"), r.get("중개사무소"),
-         r.get("요약메모"), r.get("원문블록")]
-        for r in records
-    ]
-
-
-def _push_gsheet(rows_2d, batch_size=200):
-    ok = fail = 0
-    last = ""
-    for i in range(0, len(rows_2d), batch_size):
-        chunk = rows_2d[i:i + batch_size]
-        try:
-            r = requests.post(
-                GAS_URL,
-                json={"token": GAS_TOKEN, "rows": chunk, "sheet_name": GAS_SHEET_NAME},
-                timeout=30,
-            )
-            r.raise_for_status()
-            last = r.text
-            ok += len(chunk) if str(last).upper().startswith("OK") else 0
-            fail += 0 if str(last).upper().startswith("OK") else len(chunk)
-        except Exception as e:
-            fail += len(chunk)
-            last = str(e)
-    return ok, fail, last
-
-
-# ── 구글시트 읽기 (복원용) ───────────────────────────────────────────────
-def _fetch_from_gsheet() -> list[list]:
-    """GAS doGet 엔드포인트에서 전체 시트 데이터 가져오기"""
-    r = requests.get(
-        GAS_URL,
-        params={"token": GAS_TOKEN, "sheet_name": GAS_SHEET_NAME},
-        timeout=60,
-    )
-    r.raise_for_status()
-    data = r.json()
-    if "error" in data:
-        raise RuntimeError(data["error"])
-    return data.get("rows", [])
-
-
-def restore_from_gsheet() -> tuple[int, int, int]:
-    """구글시트 전체 데이터를 로컬 DB로 복원. (inserted, updated, skipped) 반환"""
-    # 컬럼 순서: [날짜, batch_id, uid, 단지명, 동, 면적, 층, 향, 거래유형, 가격,
-    #             확인매물, 제공처, 중개사무소, 요약메모, 원문블록]
-    COL = dict(date=0, batch_id=1, uid=2, complex_name=3, dong=4, area=5,
-               floor=6, direction=7, trade_type=8, price_text=9,
-               confirm_date=10, provider=11, office=12, memo=13, raw_block=14)
-
-    def _str(v):
-        s = str(v).strip() if v not in (None, "") else None
-        return None if s in (None, "None", "") else s
-
-    rows = _fetch_from_gsheet()
-    inserted = updated = skipped = 0
-
-    for row in rows:
-        if len(row) < 15:
-            skipped += 1
-            continue
-        # 헤더 행 스킵
-        if str(row[COL["date"]]).strip().lower() in ("날짜", "date", "저장일"):
-            continue
-
-        uid          = _str(row[COL["uid"]])
-        complex_name = _str(row[COL["complex_name"]])
-        dong         = _str(row[COL["dong"]])
-        price_text   = _str(row[COL["price_text"]])
-        confirm_date = _str(row[COL["confirm_date"]])
-
-        if not all([uid, complex_name, dong, price_text, confirm_date]):
-            skipped += 1
-            continue
-
-        try:
-            result, _ = upsert_listing_and_history({
-                "uid":          uid,
-                "complex_name": complex_name,
-                "dong":         dong,
-                "area":         _str(row[COL["area"]]),
-                "trade_type":   _str(row[COL["trade_type"]]),
-                "floor":        _str(row[COL["floor"]]),
-                "direction":    _str(row[COL["direction"]]),
-                "price_text":   price_text,
-                "confirm_date": confirm_date,
-                "provider":     _str(row[COL["provider"]]),
-                "office":       _str(row[COL["office"]]),
-                "memo":         _str(row[COL["memo"]]),
-                "raw_block":    _str(row[COL["raw_block"]]),
-                "batch_id":     _str(row[COL["batch_id"]]),
-            })
-            if result == "insert":
-                inserted += 1
-            elif result in ("update", "blocked"):
-                updated += 1
-            else:
-                skipped += 1
-        except Exception:
-            skipped += 1
-
-    return inserted, updated, skipped
-
-
 # ── UI ────────────────────────────────────────────────────────────────────
-with st.expander("🔄 구글시트 → DB 복원 (배포 후 데이터 복구)", expanded=False):
-    st.caption(
-        "앱 업데이트 후 DB가 초기화됐을 때 사용합니다. "
-        "구글시트(APT_RAWDATA)에 저장된 매물 전체를 로컬 DB로 불러옵니다."
-    )
-    st.info(
-        "**사전 작업 필요:** GAS 스크립트에 `doGet` 함수가 추가되어 있어야 합니다. "
-        "아래 코드를 GAS 스크립트에 붙여넣고 재배포(배포 → 기존 배포 관리 → 버전 새로 만들기)하세요.",
-        icon="⚠️",
-    )
-    with st.expander("GAS doGet 코드 보기"):
-        st.code(
-            """function doGet(e) {
-  var token = e.parameter.token;
-  if (token !== "MY_SECRET_TOKEN") {
-    return ContentService
-      .createTextOutput(JSON.stringify({error: "Unauthorized"}))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  var sheetName = e.parameter.sheet_name || "APT_RAWDATA";
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    return ContentService
-      .createTextOutput(JSON.stringify({error: "Sheet not found: " + sheetName}))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  var data = sheet.getDataRange().getValues();
-  return ContentService
-    .createTextOutput(JSON.stringify({rows: data}))
-    .setMimeType(ContentService.MimeType.JSON);
-}""",
-            language="javascript",
-        )
-
-    if st.button("구글시트에서 DB 복원 시작", type="primary"):
-        with st.spinner("구글시트에서 데이터를 불러오는 중…"):
-            try:
-                ins, upd, skip = restore_from_gsheet()
-                st.success(
-                    f"복원 완료 — 신규 **{ins}건** 추가 / 기존 **{upd}건** 업데이트 / {skip}건 스킵"
-                )
-                st.cache_data.clear()
-            except Exception as e:
-                st.error(f"복원 실패: {e}")
-
 st.markdown("#### 📝 매물 데이터 입력")
 
 raw = st.text_area(
