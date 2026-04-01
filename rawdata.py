@@ -17,7 +17,7 @@ inject_korean_font()
 require_auth()
 
 # ── 구글시트 설정 ─────────────────────────────────────────────────────────
-GAS_URL        = "https://script.google.com/macros/s/AKfycbwLB0tecqN_hOgzEqo8jS9OH13llHeraXDQ7G_CZ60XDvBFmDv6sX1luG6kY5m0Z1_uug/exec"
+GAS_URL        = "https://script.google.com/macros/s/AKfycbwmzI_fYEXU1vUNW-XLzaZELFZrDxOL4NfdDMw3qIGTKUM4YoTkS2mx9KIEEgH0DDW1/exec"
 GAS_TOKEN      = "MY_SECRET_TOKEN"
 GAS_SHEET_NAME = "APT_RAWDATA"
 
