@@ -6,7 +6,6 @@ from typing import Dict, Any, Optional, List, Tuple
 
 # Railway Volume 마운트 경로 우선, 없으면 로컬 경로
 DB_PATH = os.environ.get("DB_PATH", "/app/data/naver_land.db")
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 
 # =========================
@@ -26,6 +25,7 @@ def get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with get_conn() as conn:
         cur = conn.cursor()
 
