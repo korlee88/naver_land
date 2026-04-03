@@ -16,20 +16,27 @@ GAS_TOKEN = "MY_SECRET_TOKEN"
 def _push_to_sheet(rows_2d: list[list], sheet_name: str) -> tuple[int, int, str]:
     ok = fail = 0
     last = ""
-    for i in range(0, len(rows_2d), 200):
-        chunk = rows_2d[i:i + 200]
+    for i in range(0, len(rows_2d), 100):   # 200 → 100으로 줄여 timeout 방지
+        chunk = rows_2d[i:i + 100]
+        # raw_block(마지막 열) 내 줄바꿈·탭 제거 (GAS JSON 파싱 오류 방지)
+        cleaned = []
+        for row in chunk:
+            r2 = list(row)
+            if len(r2) >= 15 and r2[14]:
+                r2[14] = str(r2[14]).replace("\n", " ").replace("\r", " ").replace("\t", " ")
+            cleaned.append(r2)
         try:
             r = requests.post(
                 GAS_URL,
-                json={"token": GAS_TOKEN, "rows": chunk, "sheet_name": sheet_name},
-                timeout=30,
+                json={"token": GAS_TOKEN, "rows": cleaned, "sheet_name": sheet_name},
+                timeout=45,
             )
             r.raise_for_status()
             last = r.text
-            ok   += len(chunk) if str(last).upper().startswith("OK") else 0
-            fail += 0          if str(last).upper().startswith("OK") else len(chunk)
+            ok   += len(cleaned) if str(last).upper().startswith("OK") else 0
+            fail += 0             if str(last).upper().startswith("OK") else len(cleaned)
         except Exception as e:
-            fail += len(chunk)
+            fail += len(cleaned)
             last = str(e)
     return ok, fail, last
 
