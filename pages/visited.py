@@ -20,10 +20,10 @@ inject_korean_font()
 require_auth()
 init_db()
 
-# ── 옵션 목록 ─────────────────────────────────
+# ── 옵션 목록 (시스템에어컨 제외 — 별도 대수 입력) ──
 OPTION_LIST = [
     "에어컨", "냉장고", "세탁기", "건조기", "식기세척기",
-    "붙박이장", "시스템에어컨", "인덕션/가스레인지", "오븐",
+    "붙박이장", "인덕션/가스레인지", "오븐",
     "엘리베이터", "주차 가능", "CCTV", "무인택배함",
     "리모델링", "신축", "채광 좋음", "조망 좋음",
 ]
@@ -43,18 +43,18 @@ complex_names = _complex_names()
 
 
 # ══════════════════════════════════════════════
-# 금액 파싱 (텍스트 → 억 단위 float)
+# 금액 파싱 (저장된 텍스트 → 억 단위 float)
 # ══════════════════════════════════════════════
 def _parse_eok(text: str):
     """
-    "3억 8,000" → 3.8  /  "38000만" → 3.8  /  "3.8억" → 3.8
-    "매매 38000" → 3.8  (5자리 이상 단독 숫자는 만원 단위로 간주)
+    저장 포맷: "3.90억" (number_input으로 입력 후 저장)
+    구버전 포맷도 처리: "3억 8,000", "38000만", 원단위(390000000)
     """
     if not text:
         return None
     t = str(text).replace(",", "").replace(" ", "")
 
-    # "N억 M..." 패턴
+    # "N억..." 패턴
     m = re.search(r"(\d+\.?\d*)억\s*(\d+)?", t)
     if m:
         eok  = float(m.group(1))
@@ -72,13 +72,15 @@ def _parse_eok(text: str):
     if m:
         return round(int(m.group(1)) / 10000, 4)
 
-    # 단독 숫자: 1000 이상이면 만원, 아니면 억
+    # 단독 숫자
     m = re.search(r"(\d+\.?\d*)", t)
     if m:
         v = float(m.group(1))
-        if v >= 1000:
-            return round(v / 10000, 4)
-        return round(v, 4)
+        if v >= 100_000_000:      # 원 단위 (1억 이상)
+            return round(v / 100_000_000, 4)
+        if v >= 1_000:            # 만원 단위
+            return round(v / 10_000, 4)
+        return round(v, 4)        # 억 단위
 
     return None
 
@@ -96,7 +98,6 @@ def _listing_by_dong() -> dict:
         rows = read_listings()
     except Exception:
         return {}
-    # last_seen 내림차순이므로 처음 만나는 key가 최신
     result = {}
     for r in rows:
         cn   = str(r.get("complex_name") or "").strip().lower()
@@ -120,7 +121,6 @@ def _score_visited(row: dict, listing_map: dict, view_map: dict):
     cn   = str(row.get("complex_name") or "").strip().lower()
     dong = str(row.get("dong") or "").strip()
 
-    # DB 매칭
     info      = listing_map.get((cn, dong)) or {}
     floor     = info.get("floor")
     direction = info.get("direction")
@@ -167,11 +167,32 @@ with st.form("visited_form", clear_on_submit=True):
         complex_name = st.text_input("단지명 직접입력", placeholder="예) 더샵지제역센트럴파크")
 
     r2c1, r2c2, r2c3 = st.columns(3)
-    dong       = r2c1.text_input("동",   placeholder="예) 101")
-    ho         = r2c2.text_input("호수", placeholder="예) 1502")
-    price_text = r2c3.text_input("금액", placeholder="예) 3억 8,000")
+    dong     = r2c1.text_input("동",   placeholder="예) 101")
+    ho       = r2c2.text_input("호수", placeholder="예) 1502")
+    price_eok = r2c3.number_input(
+        "금액 (억 단위)",
+        min_value=0.0, max_value=100.0, step=0.01, value=0.0,
+        format="%.2f",
+        help="예: 3억 8천만 → 3.80 입력",
+    )
 
     st.markdown("**✅ 확인된 옵션**")
+
+    # 시스템 에어컨 대수 (별도 입력)
+    ac_col1, ac_col2 = st.columns([1, 3])
+    ac_col1.markdown(
+        "<div style='padding-top:8px;font-size:13px;'>🌀 시스템에어컨</div>",
+        unsafe_allow_html=True,
+    )
+    sys_ac_count = ac_col2.number_input(
+        "시스템에어컨 대수", min_value=0, max_value=10, step=1, value=0,
+        label_visibility="collapsed",
+        help="0 = 없음",
+    )
+    if sys_ac_count > 0:
+        ac_col2.caption(f"✅ {sys_ac_count}대 설치")
+
+    # 나머지 옵션 체크박스 (4열)
     opt_cols = st.columns(4)
     selected_options = []
     for idx, opt in enumerate(OPTION_LIST):
@@ -187,9 +208,13 @@ if submitted:
         st.warning("단지명을 입력해 주세요.")
     elif not dong or not ho:
         st.warning("동과 호수를 입력해 주세요.")
-    elif not price_text:
+    elif price_eok <= 0:
         st.warning("금액을 입력해 주세요.")
     else:
+        # 시스템에어컨 옵션 추가
+        if sys_ac_count > 0:
+            selected_options.append(f"시스템에어컨 {sys_ac_count}대")
+
         insert_visited({
             "visit_date":   str(visit_date),
             "complex_name": complex_name,
@@ -198,11 +223,11 @@ if submitted:
             "area":         "",
             "unit_type":    "",
             "direction":    "",
-            "price_text":   price_text,
+            "price_text":   f"{price_eok:.2f}억",
             "options":      selected_options,
             "memo":         memo,
         })
-        st.success(f"✅ '{complex_name}' {dong}동 {ho}호 기록이 저장되었습니다.")
+        st.success(f"✅ '{complex_name}' {dong}동 {ho}호 ({price_eok:.2f}억) 기록이 저장되었습니다.")
         st.cache_data.clear()
         st.rerun()
 
@@ -297,19 +322,18 @@ with st.expander("📋 전체 목록 (표)"):
     for rank, r in enumerate(scored):
         eok = r.get("eok")
         rows_for_df.append({
-            "순위":     rank + 1,
-            "점수":     r["score"],
-            "단지명":   r["complex_name"],
-            "동":       r.get("dong", ""),
-            "호수":     r.get("ho", ""),
-            "금액":     r.get("price_text", ""),
-            "억(환산)": f"{eok:.2f}" if eok else "-",
-            "층":       r.get("floor") or "-",
-            "방향":     r.get("direction") or "-",
-            "평형":     r.get("area") or "-",
-            "옵션":     ", ".join(r.get("options") or []) or "-",
-            "메모":     (r.get("memo") or "")[:30],
-            "방문일":   r.get("visit_date", ""),
+            "순위":   rank + 1,
+            "점수":   r["score"],
+            "단지명": r["complex_name"],
+            "동":     r.get("dong", ""),
+            "호수":   r.get("ho", ""),
+            "금액":   r.get("price_text", ""),
+            "층":     r.get("floor") or "-",
+            "방향":   r.get("direction") or "-",
+            "평형":   r.get("area") or "-",
+            "옵션":   ", ".join(r.get("options") or []) or "-",
+            "메모":   (r.get("memo") or "")[:30],
+            "방문일": r.get("visit_date", ""),
         })
     st.dataframe(pd.DataFrame(rows_for_df), use_container_width=True, hide_index=True)
 
