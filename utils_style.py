@@ -148,6 +148,12 @@ input, textarea, select,
     font-family: 'Noto Sans KR', sans-serif !important;
     font-size: 12px !important;
 }
+[data-baseweb="tag"] span[title] {
+    max-width: none !important;
+    overflow: visible !important;
+    white-space: normal !important;
+    text-overflow: unset !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
