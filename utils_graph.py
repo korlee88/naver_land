@@ -133,9 +133,9 @@ def build_df():
     if hist.empty or not {"uid", "seen_at", "price_text"}.issubset(hist.columns): return pd.DataFrame()
     if lst.empty  or not {"uid", "complex_name", "trade_type"}.issubset(lst.columns): return pd.DataFrame()
 
-    hist["seen_at"]   = pd.to_datetime(hist["seen_at"], errors="coerce", utc=True).dt.tz_localize(None)
+    hist["seen_at"]   = pd.to_datetime(hist["seen_at"], errors="coerce", utc=True).dt.tz_convert(None)
     hist              = hist.dropna(subset=["seen_at"]).copy()
-    hist["uploadday"] = hist["seen_at"].dt.normalize()
+    hist["uploadday"] = hist["seen_at"].dt.floor("D")  # 날짜만 (시간 제거)
 
     want = ["uid", "complex_name", "trade_type", "floor", "direction", "area", "confirm_date", "memo", "dong"]
     cols = [c for c in want if c in lst.columns]

@@ -221,16 +221,22 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             ))
 
         fig.update_layout(
-            title=dict(text=cname, font=dict(size=11), x=0, xanchor="left"),
-            height=300,
-            margin=dict(l=40, r=20, t=30, b=60),
+            title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
+            height=340,
+            margin=dict(l=50, r=20, t=36, b=70),
             plot_bgcolor="white",
-            legend=dict(orientation="h", y=-0.25, x=0, font=dict(size=9)),
+            legend=dict(orientation="h", y=-0.22, x=0, font=dict(size=10)),
             hovermode="x unified",
-            xaxis=dict(tickfont=dict(size=8), tickangle=30,
-                       range=[X_MIN, X_MAX] if X_MIN is not None else None),
+            xaxis=dict(
+                tickfont=dict(size=10), tickangle=30,
+                tickformat="%m/%d",       # 날짜만 표시 (MM/DD)
+                dtick="M0.5",             # 약 2주 간격
+                range=[X_MIN, X_MAX] if X_MIN is not None else None,
+                gridcolor="#f1f5f9", showgrid=True,
+            ),
             yaxis=dict(
-                title="가격(억)", tickfont=dict(size=8),
+                title=dict(text="억", font=dict(size=10)),
+                tickfont=dict(size=10),
                 showgrid=True, gridcolor="#f1f5f9",
                 dtick=Y_TICK, tickformat=".1f",
                 range=[Y_MIN, Y_MAX],
