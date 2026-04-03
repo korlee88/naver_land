@@ -24,8 +24,7 @@ init_db()
 OPTION_LIST = [
     "에어컨", "냉장고", "세탁기", "건조기", "식기세척기",
     "붙박이장", "인덕션/가스레인지", "오븐",
-    "엘리베이터", "주차 가능", "CCTV", "무인택배함",
-    "리모델링", "신축", "채광 좋음", "조망 좋음",
+    "리모델링", "채광 좋음", "조망 좋음",
 ]
 
 # ── 기존 단지명 목록 (자동완성용) ──────────────
@@ -161,10 +160,11 @@ with st.form("visited_form", clear_on_submit=True):
     complex_name = r1c2.selectbox("단지명", options=complex_names, index=0 if complex_names else 0)
     office_name  = r1c3.text_input("부동산", placeholder="예) 더샵공인중개사")
 
-    r2c1, r2c2, r2c3 = st.columns(3)
-    dong     = r2c1.text_input("동",   placeholder="예) 101")
-    ho       = r2c2.text_input("호수", placeholder="예) 1502")
-    price_eok = r2c3.number_input(
+    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+    dong      = r2c1.text_input("동",   placeholder="예) 101")
+    floor_txt = r2c2.text_input("층수", placeholder="예) 15")
+    ho        = r2c3.text_input("호수", placeholder="예) 1502  (모르면 공란)")
+    price_eok = r2c4.number_input(
         "금액 (억 단위)",
         min_value=0.0, max_value=100.0, step=0.01, value=0.0,
         format="%.2f",
@@ -201,8 +201,8 @@ with st.form("visited_form", clear_on_submit=True):
 if submitted:
     if not complex_name:
         st.warning("단지명을 선택해 주세요.")
-    elif not dong or not ho:
-        st.warning("동과 호수를 입력해 주세요.")
+    elif not dong:
+        st.warning("동을 입력해 주세요.")
     elif price_eok <= 0:
         st.warning("금액을 입력해 주세요.")
     else:
@@ -215,14 +215,16 @@ if submitted:
             "complex_name": complex_name,
             "dong":         dong,
             "ho":           ho,
-            "area":         "",
+            "area":         floor_txt,     # 층수 저장
             "unit_type":    office_name,   # 부동산 이름 저장
             "direction":    "",
             "price_text":   f"{price_eok:.2f}억",
             "options":      selected_options,
             "memo":         memo,
         })
-        st.success(f"✅ '{complex_name}' {dong}동 {ho}호 ({price_eok:.2f}억) 기록이 저장되었습니다.")
+        ho_str = f" {ho}호" if ho else ""
+        floor_str = f" {floor_txt}층" if floor_txt else ""
+        st.success(f"✅ '{complex_name}' {dong}동{ho_str}{floor_str} ({price_eok:.2f}억) 기록이 저장되었습니다.")
         st.cache_data.clear()
         st.rerun()
 
@@ -264,9 +266,10 @@ def _fmt_score(v, lbl):
 for rank, r in enumerate(scored):
     emoji    = RANK_EMOJIS[rank] if rank < len(RANK_EMOJIS) else f"**{rank+1}위**"
     eok      = r.get("eok")
-    floor    = r.get("floor") or "-"
+    # floor: DB매칭 결과 우선, 없으면 직접 입력한 층수(area 필드에 저장)
+    floor    = r.get("floor") or r.get("area") or "-"
     direc    = r.get("direction") or "-"
-    area     = r.get("area") or "-"
+    area     = "-"  # 평형은 DB매칭에서만 표시
     opts        = ", ".join(r.get("options") or []) or "-"
     memo_txt    = (r.get("memo") or "")[:50]
     office_txt  = r.get("unit_type") or ""
@@ -295,8 +298,9 @@ for rank, r in enumerate(scored):
             f"<div style='font-size:28px;text-align:center;padding-top:6px;'>{emoji}</div>",
             unsafe_allow_html=True,
         )
+        ho_disp = f" {r.get('ho','')}호" if r.get("ho") else ""
         c2.markdown(
-            f"**{r['complex_name']}** &nbsp; {r.get('dong','')}동 {r.get('ho','')}호 &nbsp; {db_badge}"
+            f"**{r['complex_name']}** &nbsp; {r.get('dong','')}동{ho_disp} &nbsp; {db_badge}"
             + (f" &nbsp;<span style='font-size:10px;color:#0369a1;'>🏢 {office_txt}</span>" if office_txt else "") + "<br>"
             f"<span style='color:#6366f1;font-weight:700;font-size:15px;'>{eok_str}</span>"
             f" &nbsp;|&nbsp; 층 {floor} &nbsp;|&nbsp; {direc} &nbsp;|&nbsp; {area}<br>"
