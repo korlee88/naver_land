@@ -133,7 +133,7 @@ def build_df():
     if hist.empty or not {"uid", "seen_at", "price_text"}.issubset(hist.columns): return pd.DataFrame()
     if lst.empty  or not {"uid", "complex_name", "trade_type"}.issubset(lst.columns): return pd.DataFrame()
 
-    hist["seen_at"]   = pd.to_datetime(hist["seen_at"], errors="coerce")
+    hist["seen_at"]   = pd.to_datetime(hist["seen_at"], errors="coerce", utc=True).dt.tz_localize(None)
     hist              = hist.dropna(subset=["seen_at"]).copy()
     hist["uploadday"] = hist["seen_at"].dt.normalize()
 
