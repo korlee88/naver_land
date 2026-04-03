@@ -34,6 +34,15 @@ def _push_to_sheet(rows_2d: list[list], sheet_name: str) -> tuple[int, int, str]
     return ok, fail, last
 
 
+# 표준 컬럼 정의 (백업 ↔ 복원 완전 일치)
+SHEET_HEADER = ["날짜", "배치ID", "UID", "단지명", "동", "평형",
+                "층", "방향", "거래유형", "금액",
+                "확인매물", "공인중개사", "부동산", "메모", "RAW블록"]
+SHEET_COLS   = ["seen_at", "batch_id", "uid", "complex_name", "dong", "area",
+                "floor", "direction", "trade_type", "price_text",
+                "confirm_date", "provider", "office", "memo", "raw_block"]
+
+
 def _fetch_from_sheet(sheet_name: str) -> list[list]:
     r = requests.get(
         GAS_URL,
@@ -49,9 +58,21 @@ def _fetch_from_sheet(sheet_name: str) -> list[list]:
 
 def _restore_from_sheet(sheet_name: str) -> tuple[int, int, int]:
     """구글시트 탭 → 로컬 DB 복원. 반환: (inserted, updated, skipped)"""
-    COL = dict(date=0, batch_id=1, uid=2, complex_name=3, dong=4, area=5,
-               floor=6, direction=7, trade_type=8, price_text=9,
-               confirm_date=10, provider=11, office=12, memo=13, raw_block=14)
+    # 헤더행 기반 동적 컬럼 매핑 (고정 인덱스 의존 제거)
+    HEADER_MAP = {
+        "날짜": "date", "배치id": "batch_id", "uid": "uid",
+        "단지명": "complex_name", "동": "dong", "평형": "area",
+        "층": "floor", "방향": "direction", "거래유형": "trade_type",
+        "금액": "price_text", "확인매물": "confirm_date",
+        "공인중개사": "provider", "부동산": "office", "메모": "memo",
+        "raw블록": "raw_block",
+    }
+    # 구버전 9열 헤더 매핑도 포함
+    HEADER_MAP_LEGACY = {
+        "날짜": "date", "단지명": "complex_name", "동": "dong",
+        "평형": "area", "층": "floor", "거래유형": "trade_type",
+        "금액": "price_text", "확인매물": "confirm_date", "메모": "memo",
+    }
 
     def _s(v):
         s = str(v).strip() if v not in (None, "") else None
@@ -59,30 +80,62 @@ def _restore_from_sheet(sheet_name: str) -> tuple[int, int, int]:
 
     rows = _fetch_from_sheet(sheet_name)
     inserted = updated = skipped = 0
+    col_idx = None   # {field_name: column_index}
+
+    SKIP_HEADERS = {"날짜", "date", "저장일"}
 
     for row in rows:
-        if len(row) < 15:
+        if not row or not str(row[0]).strip():
+            continue
+
+        first = str(row[0]).strip()
+
+        # 헤더 행 감지 → 컬럼 인덱스 재계산
+        if first.lower() in {h.lower() for h in SKIP_HEADERS}:
+            # 헤더 파싱
+            col_idx = {}
+            for i, cell in enumerate(row):
+                key = str(cell).strip().lower()
+                if key in HEADER_MAP:
+                    col_idx[HEADER_MAP[key]] = i
+                elif key in HEADER_MAP_LEGACY:
+                    col_idx[HEADER_MAP_LEGACY[key]] = i
+            continue
+
+        def _get(field):
+            if col_idx and field in col_idx:
+                idx = col_idx[field]
+                return _s(row[idx]) if idx < len(row) else None
+            # 헤더 없는 경우 기존 고정 인덱스 폴백 (15열)
+            fixed = dict(date=0, batch_id=1, uid=2, complex_name=3, dong=4,
+                         area=5, floor=6, direction=7, trade_type=8, price_text=9,
+                         confirm_date=10, provider=11, office=12, memo=13, raw_block=14)
+            idx = fixed.get(field)
+            return _s(row[idx]) if idx is not None and idx < len(row) else None
+
+        # 15열 미만 + 헤더 미감지 상태면 스킵
+        if not col_idx and len(row) < 15:
             skipped += 1
             continue
-        if str(row[COL["date"]]).strip().lower() in ("날짜", "date", "저장일"):
-            continue
-        uid          = _s(row[COL["uid"]])
-        complex_name = _s(row[COL["complex_name"]])
-        dong         = _s(row[COL["dong"]])
-        price_text   = _s(row[COL["price_text"]])
-        confirm_date = _s(row[COL["confirm_date"]])
+
+        uid          = _get("uid")
+        complex_name = _get("complex_name")
+        dong         = _get("dong")
+        price_text   = _get("price_text")
+        confirm_date = _get("confirm_date")
+
         if not all([uid, complex_name, dong, price_text, confirm_date]):
             skipped += 1
             continue
         try:
             result, _ = upsert_listing_and_history({
                 "uid": uid, "complex_name": complex_name, "dong": dong,
-                "area": _s(row[COL["area"]]), "trade_type": _s(row[COL["trade_type"]]),
-                "floor": _s(row[COL["floor"]]), "direction": _s(row[COL["direction"]]),
+                "area": _get("area"), "trade_type": _get("trade_type"),
+                "floor": _get("floor"), "direction": _get("direction"),
                 "price_text": price_text, "confirm_date": confirm_date,
-                "provider": _s(row[COL["provider"]]), "office": _s(row[COL["office"]]),
-                "memo": _s(row[COL["memo"]]), "raw_block": _s(row[COL["raw_block"]]),
-                "batch_id": _s(row[COL["batch_id"]]),
+                "provider": _get("provider"), "office": _get("office"),
+                "memo": _get("memo"), "raw_block": _get("raw_block"),
+                "batch_id": _get("batch_id"),
             })
             if result == "insert":
                 inserted += 1
@@ -109,30 +162,37 @@ with st.expander("☁️ 구글시트 백업 / 복원", expanded=False):
     # ── 백업 탭 ──
     with tab_backup:
         today_str = datetime.now().strftime("%y%m%d")
-        default_sheet = f"매물등록 {today_str}"
+        default_sheet = f"기록"
         backup_sheet = st.text_input("저장할 시트명", value=default_sheet, key="backup_sheet")
-        st.caption("구글시트에 새 탭이 생성됩니다. 기존 탭과 이름이 같으면 이어서 추가됩니다.")
 
-        if st.button("📤 구글시트로 백업", type="primary", use_container_width=True):
+        st.warning(
+            "⚠️ **정리 내보내기 전 필수:** 구글시트에서 해당 탭의 기존 내용을 먼저 전체 선택(Ctrl+A) → 삭제한 후 실행하세요.  \n"
+            "그래야 열 순서가 통일된 깔끔한 시트가 됩니다.",
+            icon=None,
+        )
+        st.caption(
+            f"내보내는 열 순서: **{' | '.join(SHEET_HEADER)}**"
+        )
+
+        if st.button("📤 구글시트로 내보내기 (정리된 15열)", type="primary", use_container_width=True):
             hist_all = read_history()
             lst_all  = read_listings()
             if not hist_all:
                 st.warning("백업할 데이터가 없습니다.")
             else:
                 df_h = pd.DataFrame(hist_all)
-                df_l = pd.DataFrame(lst_all)[["uid","complex_name","dong","area","trade_type","floor","direction"]]
+                df_l = pd.DataFrame(lst_all)[
+                    ["uid", "complex_name", "dong", "area", "trade_type", "floor", "direction"]
+                ]
                 df_b = df_h.merge(df_l, on="uid", how="left")
 
-                COLS = ["seen_at","complex_name","dong","area","floor","trade_type",
-                        "price_text","confirm_date","memo"]
-                header = ["날짜","단지명","동","평형","층","거래유형","금액","확인매물","메모"]
-                cols   = [c for c in COLS if c in df_b.columns]
-                rows_2d = [header] + df_b[cols].fillna("").astype(str).values.tolist()
+                cols    = [c for c in SHEET_COLS if c in df_b.columns]
+                rows_2d = [SHEET_HEADER] + df_b[cols].fillna("").astype(str).values.tolist()
 
-                with st.spinner("업로드 중…"):
+                with st.spinner(f"업로드 중… 총 {len(rows_2d)-1:,}건"):
                     ok, fail, last = _push_to_sheet(rows_2d, backup_sheet)
                 if fail == 0:
-                    st.success(f"✅ {ok}건 백업 완료 → **{backup_sheet}**")
+                    st.success(f"✅ {ok}건 내보내기 완료 → **{backup_sheet}** 탭")
                 else:
                     st.warning(f"성공 {ok} / 실패 {fail} (응답: {last})")
 
@@ -231,7 +291,9 @@ st.caption(f"총 {len(df):,}건 중 필터 결과: **{len(view):,}건**")
 
 # ── 표시 컬럼 ──
 SHOW_COLS = [c for c in [
-    "id", "seen_at", "complex_name", "dong", "area", "floor", "price_text", "memo"
+    "id", "seen_at", "batch_id", "complex_name", "dong", "area",
+    "floor", "direction", "trade_type", "price_text", "confirm_date",
+    "provider", "office", "memo",
 ] if c in view.columns]
 
 show_df = view[SHOW_COLS].copy().reset_index(drop=True)
@@ -243,14 +305,20 @@ event = st.dataframe(
     use_container_width=True,
     height=600,
     column_config={
-        "seen_at":      st.column_config.TextColumn("날짜",   width="small"),
-        "complex_name": st.column_config.TextColumn("단지명", width="medium"),
-        "dong":         st.column_config.TextColumn("동",     width="small"),
-        "area":         st.column_config.TextColumn("평형",   width="small"),
-        "floor":        st.column_config.TextColumn("층",     width="small"),
-        "price_text":   st.column_config.TextColumn("금액",   width="small"),
+        "id":           st.column_config.NumberColumn("ID",      width="small"),
+        "seen_at":      st.column_config.TextColumn("날짜",      width="small"),
+        "batch_id":     st.column_config.TextColumn("배치ID",    width="small"),
+        "complex_name": st.column_config.TextColumn("단지명",    width="medium"),
+        "dong":         st.column_config.TextColumn("동",        width="small"),
+        "area":         st.column_config.TextColumn("평형",      width="small"),
+        "floor":        st.column_config.TextColumn("층",        width="small"),
+        "direction":    st.column_config.TextColumn("방향",      width="small"),
+        "trade_type":   st.column_config.TextColumn("거래유형",  width="small"),
+        "price_text":   st.column_config.TextColumn("금액",      width="small"),
+        "confirm_date": st.column_config.TextColumn("확인매물",  width="small"),
+        "provider":     st.column_config.TextColumn("공인중개사", width="small"),
+        "office":       st.column_config.TextColumn("부동산",    width="small"),
         "memo":         st.column_config.TextColumn("메모"),
-        "id":           st.column_config.NumberColumn("ID",   width="small"),
     },
     hide_index=True,
     on_select="rerun",
