@@ -156,15 +156,10 @@ st.markdown("#### 🏠 방문 매물 기록")
 with st.form("visited_form", clear_on_submit=True):
     st.markdown("**📋 매물 정보 입력**")
 
-    r1c1, r1c2 = st.columns([1, 3])
+    r1c1, r1c2, r1c3 = st.columns([1, 2, 2])
     visit_date   = r1c1.date_input("방문일자", value=pd.Timestamp.today())
-    complex_name = r1c2.selectbox(
-        "단지명",
-        options=["직접입력"] + complex_names,
-        index=0,
-    )
-    if complex_name == "직접입력":
-        complex_name = st.text_input("단지명 직접입력", placeholder="예) 더샵지제역센트럴파크")
+    complex_name = r1c2.selectbox("단지명", options=complex_names, index=0 if complex_names else 0)
+    office_name  = r1c3.text_input("부동산", placeholder="예) 더샵공인중개사")
 
     r2c1, r2c2, r2c3 = st.columns(3)
     dong     = r2c1.text_input("동",   placeholder="예) 101")
@@ -204,8 +199,8 @@ with st.form("visited_form", clear_on_submit=True):
     submitted = st.form_submit_button("💾 저장", type="primary", use_container_width=True)
 
 if submitted:
-    if not complex_name or complex_name == "직접입력":
-        st.warning("단지명을 입력해 주세요.")
+    if not complex_name:
+        st.warning("단지명을 선택해 주세요.")
     elif not dong or not ho:
         st.warning("동과 호수를 입력해 주세요.")
     elif price_eok <= 0:
@@ -221,7 +216,7 @@ if submitted:
             "dong":         dong,
             "ho":           ho,
             "area":         "",
-            "unit_type":    "",
+            "unit_type":    office_name,   # 부동산 이름 저장
             "direction":    "",
             "price_text":   f"{price_eok:.2f}억",
             "options":      selected_options,
@@ -272,8 +267,9 @@ for rank, r in enumerate(scored):
     floor    = r.get("floor") or "-"
     direc    = r.get("direction") or "-"
     area     = r.get("area") or "-"
-    opts     = ", ".join(r.get("options") or []) or "-"
-    memo_txt = (r.get("memo") or "")[:50]
+    opts        = ", ".join(r.get("options") or []) or "-"
+    memo_txt    = (r.get("memo") or "")[:50]
+    office_txt  = r.get("unit_type") or ""
 
     eok_str  = f"{eok:.2f}억" if eok is not None else r.get("price_text", "-")
     db_badge = (
@@ -300,7 +296,8 @@ for rank, r in enumerate(scored):
             unsafe_allow_html=True,
         )
         c2.markdown(
-            f"**{r['complex_name']}** &nbsp; {r.get('dong','')}동 {r.get('ho','')}호 &nbsp; {db_badge}<br>"
+            f"**{r['complex_name']}** &nbsp; {r.get('dong','')}동 {r.get('ho','')}호 &nbsp; {db_badge}"
+            + (f" &nbsp;<span style='font-size:10px;color:#0369a1;'>🏢 {office_txt}</span>" if office_txt else "") + "<br>"
             f"<span style='color:#6366f1;font-weight:700;font-size:15px;'>{eok_str}</span>"
             f" &nbsp;|&nbsp; 층 {floor} &nbsp;|&nbsp; {direc} &nbsp;|&nbsp; {area}<br>"
             f"<span style='font-size:10px;color:#64748b;'>옵션: {opts}</span>"
@@ -331,6 +328,7 @@ with st.expander("📋 전체 목록 (표)"):
             "층":     r.get("floor") or "-",
             "방향":   r.get("direction") or "-",
             "평형":   r.get("area") or "-",
+            "부동산": r.get("unit_type") or "-",
             "옵션":   ", ".join(r.get("options") or []) or "-",
             "메모":   (r.get("memo") or "")[:30],
             "방문일": r.get("visit_date", ""),
