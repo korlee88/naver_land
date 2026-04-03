@@ -69,6 +69,7 @@ st.markdown('<div class="sec">📊 가격 추이</div>', unsafe_allow_html=True)
 
 COLS_PER_ROW = 3
 Y_TICK = 0.2          # 2천만원 단위
+STEP   = 0.1          # 버튼 1회 조절 단위 (천만원)
 
 # 모든 단지의 중상층 데이터를 모아 공통 Y·X축 범위 계산
 import math
@@ -85,10 +86,52 @@ for _cn in sel:
         _all_days.extend(_d["uploadday"].dropna().tolist())
 
 if _all_vals:
-    Y_MIN = math.floor(price_sel[0] / Y_TICK) * Y_TICK   # 사이드바 필터 하한 기준
-    Y_MAX = max(4.2, math.ceil(max(_all_vals) / Y_TICK) * Y_TICK)
+    _auto_min = math.floor(price_sel[0] / Y_TICK) * Y_TICK
+    _auto_max = max(4.2, math.ceil(max(_all_vals) / Y_TICK) * Y_TICK)
 else:
-    Y_MIN, Y_MAX = math.floor(price_sel[0] / Y_TICK) * Y_TICK, 4.2
+    _auto_min, _auto_max = math.floor(price_sel[0] / Y_TICK) * Y_TICK, 4.2
+
+# ── Y축 범위 세션 초기화 ──────────────────────
+if "y_min" not in st.session_state or st.session_state.get("_last_auto_min") != _auto_min:
+    st.session_state.y_min = _auto_min
+    st.session_state._last_auto_min = _auto_min
+if "y_max" not in st.session_state or st.session_state.get("_last_auto_max") != _auto_max:
+    st.session_state.y_max = _auto_max
+    st.session_state._last_auto_max = _auto_max
+
+# ── Y축 범위 조절 컨트롤 ─────────────────────
+_cc = st.columns([2, 1, 1, 1, 1, 1, 1, 1, 1, 2])
+
+_cc[1].markdown(
+    "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>Y최솟값</div>",
+    unsafe_allow_html=True,
+)
+if _cc[2].button("▼", key="y_min_dn", use_container_width=True):
+    st.session_state.y_min = round(st.session_state.y_min - STEP, 2)
+_cc[3].markdown(
+    f"<div style='font-size:11px;font-weight:700;text-align:center;padding-top:6px;'>"
+    f"{st.session_state.y_min:.1f}억</div>",
+    unsafe_allow_html=True,
+)
+if _cc[4].button("▲", key="y_min_up", use_container_width=True):
+    st.session_state.y_min = round(min(st.session_state.y_min + STEP, st.session_state.y_max - STEP), 2)
+
+_cc[5].markdown(
+    "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>Y최댓값</div>",
+    unsafe_allow_html=True,
+)
+if _cc[6].button("▼", key="y_max_dn", use_container_width=True):
+    st.session_state.y_max = round(max(st.session_state.y_max - STEP, st.session_state.y_min + STEP), 2)
+_cc[7].markdown(
+    f"<div style='font-size:11px;font-weight:700;text-align:center;padding-top:6px;'>"
+    f"{st.session_state.y_max:.1f}억</div>",
+    unsafe_allow_html=True,
+)
+if _cc[8].button("▲", key="y_max_up", use_container_width=True):
+    st.session_state.y_max = round(st.session_state.y_max + STEP, 2)
+
+Y_MIN = st.session_state.y_min
+Y_MAX = st.session_state.y_max
 
 if _all_days:
     X_MIN = min(_all_days)

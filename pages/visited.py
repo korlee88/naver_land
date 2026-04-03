@@ -1,16 +1,20 @@
 """
 visited.py  ─  방문 매물 기록
-직접 방문/확인한 매물 정보를 입력·저장·조회합니다.
+부동산업자로부터 받은 추천 매물을 기록하고 핵심 추천 점수 기준으로 순위를 표시합니다.
 """
 
-import json
+import re
 import pandas as pd
 import streamlit as st
 
-from db import init_db, insert_visited, read_visited, delete_visited, read_listings
+from db import init_db, insert_visited, read_visited, delete_visited, read_listings, load_view_scores
 from utils_style import inject_korean_font
 from utils_auth import require_auth
-from utils_graph import build_df, clean_name
+from utils_graph import (
+    build_df,
+    _floor_score, _direction_score, _area_score, _memo_score, _view_score,
+    RANK_EMOJIS,
+)
 
 inject_korean_font()
 require_auth()
@@ -23,8 +27,6 @@ OPTION_LIST = [
     "엘리베이터", "주차 가능", "CCTV", "무인택배함",
     "리모델링", "신축", "채광 좋음", "조망 좋음",
 ]
-
-DIRECTION_LIST = ["", "남향", "남동향", "남서향", "동향", "서향", "북동향", "북서향", "북향"]
 
 # ── 기존 단지명 목록 (자동완성용) ──────────────
 @st.cache_data(show_spinner=False, ttl=300)
@@ -39,6 +41,114 @@ def _complex_names():
 
 complex_names = _complex_names()
 
+
+# ══════════════════════════════════════════════
+# 금액 파싱 (텍스트 → 억 단위 float)
+# ══════════════════════════════════════════════
+def _parse_eok(text: str):
+    """
+    "3억 8,000" → 3.8  /  "38000만" → 3.8  /  "3.8억" → 3.8
+    "매매 38000" → 3.8  (5자리 이상 단독 숫자는 만원 단위로 간주)
+    """
+    if not text:
+        return None
+    t = str(text).replace(",", "").replace(" ", "")
+
+    # "N억 M..." 패턴
+    m = re.search(r"(\d+\.?\d*)억\s*(\d+)?", t)
+    if m:
+        eok  = float(m.group(1))
+        rest = float(m.group(2) or 0)
+        if rest >= 1000:
+            eok += rest / 10000
+        elif rest >= 100:
+            eok += rest / 1000
+        elif rest > 0:
+            eok += rest / 10
+        return round(eok, 4)
+
+    # "N만" 패턴
+    m = re.search(r"(\d+)\s*만", t)
+    if m:
+        return round(int(m.group(1)) / 10000, 4)
+
+    # 단독 숫자: 1000 이상이면 만원, 아니면 억
+    m = re.search(r"(\d+\.?\d*)", t)
+    if m:
+        v = float(m.group(1))
+        if v >= 1000:
+            return round(v / 10000, 4)
+        return round(v, 4)
+
+    return None
+
+
+# ══════════════════════════════════════════════
+# DB에서 동 정보 조회 (층/방향/평형)
+# ══════════════════════════════════════════════
+@st.cache_data(show_spinner=False, ttl=300)
+def _listing_by_dong() -> dict:
+    """
+    {(complex_name_lower, dong): {"floor": ..., "direction": ..., "area": ...}}
+    동 내 매물이 여러 개면 last_seen 기준 가장 최근 1건 사용.
+    """
+    try:
+        rows = read_listings()
+    except Exception:
+        return {}
+    # last_seen 내림차순이므로 처음 만나는 key가 최신
+    result = {}
+    for r in rows:
+        cn   = str(r.get("complex_name") or "").strip().lower()
+        dong = str(r.get("dong") or "").strip()
+        key  = (cn, dong)
+        if key not in result:
+            result[key] = {
+                "floor":     r.get("floor"),
+                "direction": r.get("direction"),
+                "area":      r.get("area"),
+            }
+    return result
+
+
+# ══════════════════════════════════════════════
+# 단일 방문 매물 점수 계산
+# ══════════════════════════════════════════════
+def _score_visited(row: dict, listing_map: dict, view_map: dict):
+    """반환: (total_score, breakdown_dict)"""
+    eok  = _parse_eok(row.get("price_text", ""))
+    cn   = str(row.get("complex_name") or "").strip().lower()
+    dong = str(row.get("dong") or "").strip()
+
+    # DB 매칭
+    info      = listing_map.get((cn, dong)) or {}
+    floor     = info.get("floor")
+    direction = info.get("direction")
+    area      = info.get("area")
+    memo      = row.get("memo") or ""
+
+    s_price = round((4.0 - eok) / 0.1 * 5, 1) if eok is not None else 0.0
+    s_floor = _floor_score(floor)
+    s_dir   = _direction_score(direction)
+    s_area  = _area_score(area)
+    s_memo  = _memo_score(memo)
+    s_view  = _view_score(
+        {"complex_name": row.get("complex_name"), "dong": dong, "floor": floor},
+        view_map,
+    )
+
+    total = round(s_price + s_floor + s_dir + s_area + s_memo + s_view, 1)
+
+    return total, {
+        "eok": eok, "floor": floor, "direction": direction, "area": area,
+        "db_matched": bool(info),
+        "score_price": s_price, "score_floor": s_floor, "score_dir": s_dir,
+        "score_area": s_area, "score_memo": s_memo, "score_view": s_view,
+    }
+
+
+# ══════════════════════════════════════════════
+# 페이지
 # ══════════════════════════════════════════════
 st.markdown("#### 🏠 방문 매물 기록")
 
@@ -56,18 +166,12 @@ with st.form("visited_form", clear_on_submit=True):
     if complex_name == "직접입력":
         complex_name = st.text_input("단지명 직접입력", placeholder="예) 더샵지제역센트럴파크")
 
-    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-    dong      = r2c1.text_input("동",   placeholder="예) 101")
-    ho        = r2c2.text_input("호수", placeholder="예) 1502")
-    area      = r2c3.text_input("평형", placeholder="예) 84A/59.7m²")
-    unit_type = r2c4.text_input("타입", placeholder="예) 84A")
-
-    r3c1, r3c2 = st.columns([1, 2])
-    direction  = r3c1.selectbox("방향", DIRECTION_LIST)
-    price_text = r3c2.text_input("금액", placeholder="예) 매매 3억 8,000")
+    r2c1, r2c2, r2c3 = st.columns(3)
+    dong       = r2c1.text_input("동",   placeholder="예) 101")
+    ho         = r2c2.text_input("호수", placeholder="예) 1502")
+    price_text = r2c3.text_input("금액", placeholder="예) 3억 8,000")
 
     st.markdown("**✅ 확인된 옵션**")
-    # 4열로 체크박스 나열
     opt_cols = st.columns(4)
     selected_options = []
     for idx, opt in enumerate(OPTION_LIST):
@@ -81,50 +185,143 @@ with st.form("visited_form", clear_on_submit=True):
 if submitted:
     if not complex_name or complex_name == "직접입력":
         st.warning("단지명을 입력해 주세요.")
+    elif not dong or not ho:
+        st.warning("동과 호수를 입력해 주세요.")
+    elif not price_text:
+        st.warning("금액을 입력해 주세요.")
     else:
         insert_visited({
             "visit_date":   str(visit_date),
             "complex_name": complex_name,
             "dong":         dong,
             "ho":           ho,
-            "area":         area,
-            "unit_type":    unit_type,
-            "direction":    direction,
+            "area":         "",
+            "unit_type":    "",
+            "direction":    "",
             "price_text":   price_text,
             "options":      selected_options,
             "memo":         memo,
         })
-        st.success(f"✅ '{complex_name}' 방문 기록이 저장되었습니다.")
+        st.success(f"✅ '{complex_name}' {dong}동 {ho}호 기록이 저장되었습니다.")
+        st.cache_data.clear()
         st.rerun()
 
 # ── 기록 목록 ─────────────────────────────────
 st.divider()
-st.markdown("**📂 방문 기록 목록**")
 
 records = read_visited()
 if not records:
     st.caption("아직 기록된 방문 매물이 없습니다.")
     st.stop()
 
-df_v = pd.DataFrame(records)
-df_v["옵션"] = df_v["options"].apply(lambda x: ", ".join(x) if x else "-")
-df_v = df_v.rename(columns={
-    "id": "ID", "visit_date": "방문일", "complex_name": "단지명",
-    "dong": "동", "ho": "호수", "area": "평형", "unit_type": "타입",
-    "direction": "방향", "price_text": "금액", "memo": "메모",
-})
+# 점수 계산 및 순위 정렬
+listing_map = _listing_by_dong()
+view_map    = load_view_scores()
 
-show_cols = ["방문일", "단지명", "동", "호수", "평형", "타입", "방향", "금액", "옵션", "메모"]
-show_cols = [c for c in show_cols if c in df_v.columns]
+scored = []
+for r in records:
+    score, bd = _score_visited(r, listing_map, view_map)
+    scored.append({**r, "score": score, **bd})
 
-st.dataframe(df_v[show_cols], use_container_width=True, hide_index=True)
+scored.sort(key=lambda x: x["score"], reverse=True)
+
+# ── 순위 카드 ──────────────────────────────────
+st.markdown(
+    "**🏆 추천 순위**"
+    '<span style="font-size:11px;color:#94a3b8;margin-left:8px;">'
+    "핵심추천 기본 점수 기준 (가격·층수·방향·평형·메모·조망)"
+    "</span>",
+    unsafe_allow_html=True,
+)
+
+def _fmt_score(v, lbl):
+    if not v:
+        return ""
+    color = "#16a34a" if v > 0 else "#dc2626"
+    sign  = "+" if v > 0 else ""
+    return f'<span style="color:{color};font-size:10px;">{lbl}{sign}{v:.0f}</span>'
+
+for rank, r in enumerate(scored):
+    emoji    = RANK_EMOJIS[rank] if rank < len(RANK_EMOJIS) else f"**{rank+1}위**"
+    eok      = r.get("eok")
+    floor    = r.get("floor") or "-"
+    direc    = r.get("direction") or "-"
+    area     = r.get("area") or "-"
+    opts     = ", ".join(r.get("options") or []) or "-"
+    memo_txt = (r.get("memo") or "")[:50]
+
+    eok_str  = f"{eok:.2f}억" if eok is not None else r.get("price_text", "-")
+    db_badge = (
+        '<span style="font-size:9px;background:#e0f2fe;color:#0369a1;'
+        'border-radius:3px;padding:1px 5px;">DB매칭</span>'
+        if r.get("db_matched") else
+        '<span style="font-size:9px;background:#fef3c7;color:#92400e;'
+        'border-radius:3px;padding:1px 5px;">금액기준</span>'
+    )
+
+    breakdown_html = " &nbsp;".join(filter(None, [
+        _fmt_score(r.get("score_price", 0), "가격"),
+        _fmt_score(r.get("score_floor", 0), "층"),
+        _fmt_score(r.get("score_dir",   0), "방향"),
+        _fmt_score(r.get("score_area",  0), "평형"),
+        _fmt_score(r.get("score_memo",  0), "메모"),
+        _fmt_score(r.get("score_view",  0), "조망"),
+    ]))
+
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1, 5, 2])
+        c1.markdown(
+            f"<div style='font-size:28px;text-align:center;padding-top:6px;'>{emoji}</div>",
+            unsafe_allow_html=True,
+        )
+        c2.markdown(
+            f"**{r['complex_name']}** &nbsp; {r.get('dong','')}동 {r.get('ho','')}호 &nbsp; {db_badge}<br>"
+            f"<span style='color:#6366f1;font-weight:700;font-size:15px;'>{eok_str}</span>"
+            f" &nbsp;|&nbsp; 층 {floor} &nbsp;|&nbsp; {direc} &nbsp;|&nbsp; {area}<br>"
+            f"<span style='font-size:10px;color:#64748b;'>옵션: {opts}</span>"
+            + (f"<br><span style='font-size:10px;color:#475569;'>📝 {memo_txt}</span>" if memo_txt else ""),
+            unsafe_allow_html=True,
+        )
+        c3.markdown(
+            f"<div style='text-align:right;'>"
+            f"<div style='font-size:24px;font-weight:800;color:#6366f1;'>{r['score']:.0f}점</div>"
+            f"<div style='font-size:10px;color:#94a3b8;'>{r.get('visit_date','')}</div>"
+            f"<div style='margin-top:4px;line-height:2;'>{breakdown_html}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+# ── 전체 테이블 (접힌 상태) ───────────────────
+with st.expander("📋 전체 목록 (표)"):
+    rows_for_df = []
+    for rank, r in enumerate(scored):
+        eok = r.get("eok")
+        rows_for_df.append({
+            "순위":     rank + 1,
+            "점수":     r["score"],
+            "단지명":   r["complex_name"],
+            "동":       r.get("dong", ""),
+            "호수":     r.get("ho", ""),
+            "금액":     r.get("price_text", ""),
+            "억(환산)": f"{eok:.2f}" if eok else "-",
+            "층":       r.get("floor") or "-",
+            "방향":     r.get("direction") or "-",
+            "평형":     r.get("area") or "-",
+            "옵션":     ", ".join(r.get("options") or []) or "-",
+            "메모":     (r.get("memo") or "")[:30],
+            "방문일":   r.get("visit_date", ""),
+        })
+    st.dataframe(pd.DataFrame(rows_for_df), use_container_width=True, hide_index=True)
 
 # ── 삭제 ──────────────────────────────────────
 with st.expander("🗑️ 기록 삭제"):
-    id_options = {f"{r['방문일']} | {r['단지명']} {r.get('동','')}동 {r.get('호수','')}호": r["ID"]
-                  for r in df_v.to_dict("records")}
+    id_options = {
+        f"{r['visit_date']} | {r['complex_name']} {r.get('dong','')}동 {r.get('ho','')}호": r["id"]
+        for r in records
+    }
     sel_label = st.selectbox("삭제할 항목 선택", list(id_options.keys()))
     if st.button("삭제 확인", type="primary"):
         delete_visited(id_options[sel_label])
         st.success("삭제되었습니다.")
+        st.cache_data.clear()
         st.rerun()
