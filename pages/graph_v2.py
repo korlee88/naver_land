@@ -68,7 +68,7 @@ with col_info:
 st.markdown('<div class="sec">📊 가격 추이</div>', unsafe_allow_html=True)
 
 COLS_PER_ROW = 3
-Y_TICK = 0.2          # 2천만원 단위
+Y_TICK = 0.3          # 3천만원 단위
 STEP   = 0.1          # 버튼 1회 조절 단위 (천만원)
 
 # 모든 단지의 중상층 데이터를 모아 공통 Y·X축 범위 계산
