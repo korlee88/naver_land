@@ -1,9 +1,12 @@
 import json
+import os
 import sqlite3
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 
-DB_PATH = "naver_land.db"
+# Railway Volume 마운트 경로 우선, 없으면 로컬 경로
+DB_PATH = os.environ.get("DB_PATH", "/app/data/naver_land.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 
 # =========================
