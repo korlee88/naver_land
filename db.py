@@ -149,7 +149,9 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
       - result: "insert" | "update"
       - hist: "history" | "no_history"
     """
-    now = _now_iso()
+    now      = _now_iso()
+    # 복원 시 원본 날짜 보존: row에 seen_at이 있으면 그 값 사용
+    seen_at  = row.get("seen_at") or now
     uid = row.get("uid")
     uid = row.get("uid")
     if not uid:
@@ -210,7 +212,7 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
                 row.get("office"),
                 row.get("memo"),
                 row.get("raw_block"),
-                now, now, now
+                seen_at, seen_at, seen_at
             ))
 
             # INSERT history (최초 1회)
@@ -219,7 +221,7 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
                 uid, seen_at, price_text, confirm_date, provider, office, memo, raw_block, batch_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                uid, now,
+                uid, seen_at,
                 row.get("price_text"),
                 row.get("confirm_date"),
                 row.get("provider"),
@@ -271,8 +273,8 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
             row.get("office"),
             merged_memo,
             row.get("raw_block"),
-            now,
-            now,
+            seen_at,
+            seen_at,
             uid
         ))
 
@@ -288,7 +290,7 @@ def upsert_listing_and_history(row: Dict[str, Any]) -> Tuple[str, str]:
                 uid, seen_at, price_text, confirm_date, provider, office, memo, raw_block, batch_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                uid, now,
+                uid, seen_at,
                 row.get("price_text"),
                 row.get("confirm_date"),
                 row.get("provider"),

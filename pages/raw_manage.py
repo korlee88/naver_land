@@ -136,6 +136,7 @@ def _restore_from_sheet(sheet_name: str) -> tuple[int, int, int]:
                 "provider": _get("provider"), "office": _get("office"),
                 "memo": _get("memo"), "raw_block": _get("raw_block"),
                 "batch_id": _get("batch_id"),
+                "seen_at": _get("date"),   # 원본 날짜 보존
             })
             if result == "insert":
                 inserted += 1
