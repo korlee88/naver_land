@@ -1,432 +1,284 @@
 # pages/notebooklm.py
 """
-NotebookLM / AI 분석용 텍스트 내보내기
-- 뉴스 요약 (policy_news_merged.json)
-- 추천 매물 TOP 5 (graph_v2 동일 점수 기준)
-- 매물 동향 (주간 매물량 추이)
-- 금액대 분석 (단지별 최저·평균·최고)
-- 전체를 하나의 텍스트로 묶어 복사
+NotebookLM 전용 내보내기
+- 버튼 1회 클릭으로 뉴스 수집 + 매물 정리 → 복붙용 텍스트 생성
 """
 import streamlit as st
 import pandas as pd
-import json, re
-from pathlib import Path
+import requests
+import xml.etree.ElementTree as ET
+import re, html
 from datetime import datetime, timedelta
-
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import db
+from urllib.parse import quote_plus
+from email.utils import parsedate_to_datetime
 
 from utils_style import inject_korean_font
-from utils_auth import require_auth
+from utils_auth  import require_auth
+from utils_graph import build_df
+
 inject_korean_font()
 require_auth()
 
-# ══════════════════════════════════════════════
-# 상수
-# ══════════════════════════════════════════════
-NEWS_JSON   = Path(__file__).resolve().parent.parent / "out" / "policy_news_merged.json"
-RECENT_DAYS = 7
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36")
 
-CAT_LABEL = {
-    "DEV":    "개발호재",
-    "MARKET": "시세동향",
-    "POLICY": "정책·규제",
-    "LOAN":   "금리·대출",
-    "SUPPLY": "공급·분양",
-    "JEONSE": "전세·임대",
-    "ETC":    "기타",
+NEWS_QUERIES = [
+    "평택 삼성 반도체", "평택 산업단지 개발", "평택 GTX 교통",
+    "평택 신도시 택지", "고덕신도시 개발", "브레인시티 평택",
+    "평택 동삭동 아파트", "평택 아파트 시세", "평택 청약 분양",
+    "평택 전세", "부동산 정책 규제 2026", "주택담보대출 금리",
+]
+
+CAT_KEYWORDS = {
+    "개발호재": ["삼성","반도체","클러스터","산업단지","gtx","고속도로","신도시","택지","개발","착공","브레인","고덕","지제역"],
+    "시세동향": ["매매가","시세","거래량","미분양","실거래","하락","상승","반등","침체"],
+    "정책·규제": ["정책","대책","조정지역","규제","발표","시행","국토부","평택시"],
+    "금리·대출": ["금리","기준금리","인하","인상","대출","dsr","ltv","주담대","보금자리"],
+    "공급·분양": ["분양","청약","입주","재개발","재건축","공급","1순위"],
+    "전세·임대": ["전세","월세","임대","갱신","역전세","전세사기"],
 }
 
-RENT_WORDS = ["전세", "월세", "보증금"]
-SKIP_KW    = ["단지", "동", "호"]
-_RE_STRIP  = re.compile(r"[,\s매매전세월세]")
-_RE_EOK_EX = re.compile(r"^(\d+(?:\.\d+)?)억$")
-_RE_EOK    = re.compile(r"(\d+(?:\.\d+)?)억")
-_RE_CHEON  = re.compile(r"(\d+(?:\.\d+)?)천")
-_RE_MAN    = re.compile(r"(\d+(?:\.\d+)?)만")
-_RE_DIGITS = re.compile(r"^\d+(?:\.\d+)?$")
-_RE_FLOOR  = re.compile(r"^(\d+)")
-
 
 # ══════════════════════════════════════════════
-# 파싱 헬퍼
+# 뉴스 수집
 # ══════════════════════════════════════════════
-def parse_eok(t):
-    if not t: return None
-    s = str(t).strip()
-    if not s or any(w in s for w in RENT_WORDS) or any(k in s for k in SKIP_KW): return None
-    s = _RE_STRIP.sub("", s)
-    m = _RE_EOK_EX.fullmatch(s)
-    if m: return float(m.group(1))
-    m = _RE_EOK.search(s)
-    if m:
-        eok = float(m.group(1)); rest = s[m.end():]
-        if not rest: return eok
-        if _RE_DIGITS.fullmatch(rest): return eok + float(rest) / 10000
-        mc = _RE_CHEON.search(rest)
-        if mc: return eok + float(mc.group(1)) / 10
-        mm = _RE_MAN.search(rest)
-        if mm: return eok + float(mm.group(1)) / 10000
-        return None
-    m = _RE_MAN.fullmatch(s)
-    return float(m.group(1)) / 10000 if m else None
+def _clean(s) -> str:
+    if not s: return ""
+    s = str(s).replace("\u200b", "").replace("\ufeff", "")
+    return re.sub(r"\s+", " ", s.replace("\r","").replace("\t"," ")).strip()
 
-def clean_name(x):
-    if x is None: return ""
-    s = str(x).replace("\u200b","").strip()
-    return "" if s in ("","1","None","nan","NaN","UNKNOWN") or len(s)<=1 else s
+def _strip_html(t) -> str:
+    return _clean(re.sub(r"<[^>]+>", " ", html.unescape(str(t or ""))))
 
-def floor_score(floor_val):
-    if not floor_val or pd.isna(floor_val): return 0.0
-    s = str(floor_val).strip()
-    if s.startswith(("저","지")): return 0.0
-    m = _RE_FLOOR.match(s)
-    if not m: return 0.0
-    n = int(m.group(1))
-    if n <= 10: return 0.0
-    if n <= 20: return 10.0
-    return 20.0
+def _to_date(raw) -> str:
+    s = _clean(raw)
+    if not s: return datetime.now().strftime("%Y-%m-%d")
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", s)
+    if m: return m.group(1)
+    try: return parsedate_to_datetime(s).date().strftime("%Y-%m-%d")
+    except: return datetime.now().strftime("%Y-%m-%d")
 
-def days_since(confirm_text):
-    if not confirm_text: return None
-    try:
-        y, mo, d = str(confirm_text).strip().split(".")
-        return (datetime.now() - datetime(2000+int(y), int(mo), int(d))).days
-    except: return None
+def _classify(title, desc) -> str:
+    s = (title + " " + desc).lower()
+    for cat, kws in CAT_KEYWORDS.items():
+        if any(k in s for k in kws):
+            return cat
+    return "기타"
 
-
-# ══════════════════════════════════════════════
-# 데이터 로드
-# ══════════════════════════════════════════════
-@st.cache_data(show_spinner=False, ttl=60)
-def load_df():
-    try: db.init_db()
-    except: pass
-    hist = pd.DataFrame(db.read_history())
-    lst  = pd.DataFrame(db.read_listings())
-    if hist.empty or lst.empty: return pd.DataFrame()
-
-    hist["seen_at"]   = pd.to_datetime(hist["seen_at"], errors="coerce")
-    hist              = hist.dropna(subset=["seen_at"]).copy()
-    hist["uploadday"] = hist["seen_at"].dt.normalize()
-
-    want = ["uid","complex_name","trade_type","floor","direction","area","confirm_date","memo","dong"]
-    cols = [c for c in want if c in lst.columns]
-    df   = hist.merge(lst[cols], on="uid", how="left")
-    df   = df[df["trade_type"] == "매매"].copy()
-    df["complex_name"] = df["complex_name"].apply(clean_name)
-    df   = df[df["complex_name"] != ""].copy()
-    df["eok"]         = df["price_text"].apply(parse_eok)
-    df["confirm_age"] = df["confirm_date"].apply(days_since) if "confirm_date" in df.columns else None
-    df   = df.dropna(subset=["eok","uploadday"]).copy()
-    return df
-
-@st.cache_data(show_spinner=False)
-def load_news():
-    if not NEWS_JSON.exists(): return []
-    try:
-        data = json.loads(NEWS_JSON.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except: return []
-
-
-# ══════════════════════════════════════════════
-# 추천 점수 계산 (graph_v2 동일 기준)
-# ══════════════════════════════════════════════
-def compute_scores(df: pd.DataFrame) -> pd.DataFrame:
-    dc = df.copy()
-    mn  = dc["eok"].min(); rng = dc["eok"].max() - mn
-    dc["score_price"] = (1 - (dc["eok"] - mn) / rng) * 40 if rng > 0 else 40.0
-
-    # 가격 하락폭 (30점)
-    if "uid" in dc.columns:
+def fetch_news(max_per_query=8) -> list[dict]:
+    results = []
+    seen = set()
+    for q in NEWS_QUERIES:
         try:
-            first = dc.groupby("uid")["eok"].first()
-            last  = dc.groupby("uid")["eok"].last()
-            dc = dc.merge((first - last).clip(lower=0).rename("drop_eok").reset_index(),
-                          on="uid", how="left")
-        except: dc["drop_eok"] = 0.0
-    else:
-        dc["drop_eok"] = 0.0
-    mx = dc["drop_eok"].max()
-    dc["score_drop"] = (dc["drop_eok"] / mx * 30) if mx > 0 else 0.0
-
-    # 신규등록 (20점)
-    cut = pd.Timestamp(datetime.now() - timedelta(days=RECENT_DAYS))
-    dc["score_new"] = dc["uploadday"].apply(lambda d: 20.0 if pd.notna(d) and d >= cut else 0.0)
-
-    # 확인매물 (10점)
-    dc["score_confirm"] = dc["confirm_age"].apply(
-        lambda a: 10.0 if pd.notna(a) and a <= 14 else 0.0
-    ) if "confirm_age" in dc.columns else 0.0
-
-    # 층수 (20점)
-    dc["score_floor"] = dc["floor"].apply(floor_score) if "floor" in dc.columns else 0.0
-
-    dc["score"] = (dc["score_price"] + dc["score_drop"] + dc["score_new"]
-                   + dc["score_confirm"] + dc["score_floor"])
-    return dc
+            url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=ko&gl=KR&ceid=KR:ko"
+            r = requests.get(url, headers={"User-Agent": UA}, timeout=15)
+            root = ET.fromstring(r.text.replace("\x00",""))
+            items = root.findall(".//item")[:max_per_query]
+            for it in items:
+                title = _clean(it.findtext("title"))
+                link  = _clean(it.findtext("link"))
+                date  = _to_date(it.findtext("pubDate"))
+                desc  = _strip_html(it.findtext("description"))
+                key   = title.lower()[:50]
+                if not title or key in seen: continue
+                seen.add(key)
+                results.append({
+                    "date": date, "title": title, "link": link,
+                    "desc": desc, "cat": _classify(title, desc),
+                })
+        except Exception:
+            continue
+    results.sort(key=lambda x: x["date"], reverse=True)
+    return results
 
 
 # ══════════════════════════════════════════════
-# 텍스트 생성 함수들
+# 텍스트 생성
 # ══════════════════════════════════════════════
-def make_news_section(news: list, days: int) -> str:
-    if not news:
-        return "※ 수집된 뉴스 없음 (policy_news 탭에서 먼저 수집해 주세요)\n"
+def make_text(df: pd.DataFrame, news: list[dict]) -> str:
+    now      = datetime.now()
+    cut7     = pd.Timestamp(now - timedelta(days=7))
+    lines    = []
 
-    cutoff = datetime.now() - timedelta(days=days)
-    recent = [n for n in news
-              if n.get("date","") >= cutoff.strftime("%Y-%m-%d")]
-    if not recent:
-        recent = news[:20]
+    # ── 헤더 ─────────────────────────────────
+    lines += [
+        "=" * 62,
+        "  평택 부동산 주간 브리핑  (NotebookLM / AI 분석용)",
+        "=" * 62,
+        f"생성일시: {now.strftime('%Y-%m-%d %H:%M')}",
+        "",
+    ]
+
+    # ── [1] 뉴스 ─────────────────────────────
+    lines += ["─" * 62, "■ 1. 최근 1주간 부동산 뉴스", "─" * 62]
+    cutoff_str = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    recent_news = [n for n in news if n["date"] >= cutoff_str]
+    if not recent_news:
+        recent_news = news[:30]
 
     by_cat: dict[str, list] = {}
-    for n in recent:
-        by_cat.setdefault(n.get("category","ETC"), []).append(n)
+    for n in recent_news:
+        by_cat.setdefault(n["cat"], []).append(n)
 
-    lines = []
-    for cat in ["DEV","MARKET","POLICY","LOAN","SUPPLY","JEONSE","ETC"]:
+    for cat in ["개발호재","시세동향","정책·규제","금리·대출","공급·분양","전세·임대","기타"]:
         items = by_cat.get(cat, [])
         if not items: continue
-        lines.append(f"[{CAT_LABEL.get(cat, cat)}]")
-        for n in items[:5]:
-            title  = n.get("title","")
-            date   = n.get("date","")
-            region = " / ".join(n.get("regions",[]))
-            dir_   = n.get("direction","")
-            bullet = n.get("bullets",[""])[0] if n.get("bullets") else ""
-            lines.append(f"  • {date} [{dir_}] {title}")
-            if region: lines.append(f"    지역: {region}")
-            if bullet and bullet != title: lines.append(f"    내용: {bullet}")
-        lines.append("")
-    return "\n".join(lines)
+        lines.append(f"\n[{cat}]")
+        for n in items[:6]:
+            lines.append(f"  • {n['date']}  {n['title']}")
+            if n["desc"] and n["desc"] != n["title"]:
+                lines.append(f"    └ {n['desc'][:80]}")
+    lines.append("")
 
+    # ── [2] 최근 1주 매물 현황 ────────────────
+    lines += ["─" * 62, "■ 2. 최근 1주간 매물 현황 (단지별)", "─" * 62]
 
-def make_top5_section(df: pd.DataFrame, sel: list) -> str:
-    parts = []
-    for cn in sel:
-        sub = df[df["complex_name"] == cn]
-        if sub.empty: continue
-        parts.append(compute_scores(sub))
-    if not parts:
-        return "※ 추천 점수 계산 가능한 데이터 없음\n"
+    df_week = df[df["uploadday"] >= cut7].copy()
+    complexes = sorted(df["complex_name"].dropna().unique().tolist())
 
-    df_sc = pd.concat(parts, ignore_index=True)
-    if "uid" in df_sc.columns:
-        df_sc = df_sc.sort_values("uploadday").groupby("uid", as_index=False).last()
-    top5 = df_sc.sort_values("score", ascending=False).head(5).reset_index(drop=True)
+    for cn in complexes:
+        sub_all  = df[df["complex_name"] == cn]
+        sub_week = df_week[df_week["complex_name"] == cn]
+        if sub_all.empty: continue
 
-    lines = []
-    ranks = ["1위","2위","3위","4위","5위"]
-    for i, row in top5.iterrows():
-        name    = row.get("complex_name","")
-        eok     = row.get("eok", 0)
-        score   = row.get("score", 0)
-        max_s   = 120
-        score_pct = min(int(score * 100 / max_s), 100)
-        drop    = row.get("drop_eok", 0)
-        floor_  = str(row.get("floor","")) + "층" if row.get("floor") else ""
-        area    = str(row.get("area",""))
-        dong    = str(row.get("dong","")) + "동" if row.get("dong") and str(row.get("dong")) not in ("","nan") else ""
-        dir_    = str(row.get("direction",""))
-        confirm = f"확인: {row.get('confirm_date','')}" if row.get("confirm_date") else ""
-        memo    = str(row.get("memo",""))[:40] if row.get("memo") and str(row.get("memo")) not in ("","nan") else ""
-        drop_txt = f"▼{drop:.2f}억 하락" if drop > 0 else ""
+        use = sub_week if not sub_week.empty else sub_all.tail(30)
+        mn  = use["eok"].min()
+        avg = use["eok"].mean()
+        mx  = use["eok"].max()
+        cnt = len(use)
+        prev = sub_all[sub_all["uploadday"] < cut7]
+        prev_min = prev["eok"].min() if not prev.empty else None
+        chg = f"  (전주比 최저 {'▲' if mn > prev_min else '▼'}{abs(mn - prev_min):.2f}억)" if prev_min else ""
 
-        detail = " · ".join(p for p in [dong, area, floor_, dir_] if p)
-        lines.append(f"  {ranks[i]}  {name}  {eok:.2f}억  (추천점수 {score_pct}점/100점)")
-        if detail: lines.append(f"       {detail}")
-        if drop_txt: lines.append(f"       {drop_txt}")
-        if confirm:  lines.append(f"       {confirm}")
-        if memo:     lines.append(f"       메모: {memo}")
-    return "\n".join(lines)
+        lines.append(f"\n【{cn}】  {cnt}건")
+        lines.append(f"  최저 {mn:.2f}억  /  평균 {avg:.2f}억  /  최고 {mx:.2f}억{chg}")
 
+        # 개별 매물 목록 (최저가 순 상위 10건)
+        top = use.sort_values("eok").head(10)
+        for _, row in top.iterrows():
+            dong  = str(row.get("dong","")).strip()
+            floor = str(row.get("floor","")).strip()
+            direc = str(row.get("direction","")).strip()
+            area  = str(row.get("area","")).strip()
+            memo  = str(row.get("memo",""))[:40].strip() if pd.notna(row.get("memo")) else ""
+            conf  = str(row.get("confirm_date","")).strip() if pd.notna(row.get("confirm_date")) else ""
+            day   = row["uploadday"].strftime("%m/%d") if pd.notna(row.get("uploadday")) else ""
 
-def make_trend_section(df: pd.DataFrame) -> str:
-    now_ts = pd.Timestamp(datetime.now())
-    rows = []
-    for w in range(5, -1, -1):
-        w_end   = now_ts - timedelta(weeks=w)
-        w_start = w_end - timedelta(weeks=1)
-        cnt = df[(df["uploadday"] >= w_start) & (df["uploadday"] < w_end)]["uid"].nunique() \
-              if "uid" in df.columns else \
-              len(df[(df["uploadday"] >= w_start) & (df["uploadday"] < w_end)])
-        label = w_start.strftime("%m/%d") + "~" + w_end.strftime("%m/%d")
-        rows.append((label, cnt, w))
+            parts = [p for p in [
+                f"{dong}동" if dong not in ("","nan") else "",
+                area if area not in ("","nan") else "",
+                f"{floor}층" if floor not in ("","nan") else "",
+                direc if direc not in ("","nan") else "",
+            ] if p]
+            detail = " · ".join(parts)
+            conf_txt = f"확인:{conf}" if conf else ""
+            memo_txt = f"메모:{memo}" if memo else ""
+            extra = "  ".join(p for p in [conf_txt, memo_txt] if p)
 
-    active = [(l, c) for l, c, w in rows if c > 0]
-    lines = []
-    for label, cnt, _ in rows:
-        bar = "█" * min(int(cnt / max(c for _, c in active) * 20), 20) if active and cnt > 0 else ""
-        lines.append(f"  {label}  {cnt:>4}건  {bar}")
+            lines.append(f"    {row['eok']:.2f}억  {detail}  [{day}]"
+                         + (f"  {extra}" if extra else ""))
+    lines.append("")
 
-    # 트렌드 판단
-    counts = [c for _, c in active]
-    if len(counts) >= 2:
-        chg = counts[-1] - counts[-2]
-        if chg > 0:   trend = f"▲ 증가 추세 (전주 대비 +{chg}건)"
-        elif chg < 0: trend = f"▼ 감소 추세 (전주 대비 {chg}건)"
-        else:         trend = "→ 보합"
-        lines.append(f"\n  [트렌드] {trend}")
-    return "\n".join(lines)
+    # ── [3] 가격 하락 매물 ────────────────────
+    lines += ["─" * 62, "■ 3. 가격 하락 매물 (등록 후 인하)", "─" * 62]
+    if "uid" in df.columns:
+        drops = []
+        for uid, g in df.groupby("uid"):
+            g = g.sort_values("uploadday")
+            if len(g) < 2: continue
+            first_p = g["eok"].iloc[0]
+            last_p  = g["eok"].iloc[-1]
+            if last_p < first_p:
+                last_row = g.iloc[-1]
+                drops.append({
+                    "단지": last_row.get("complex_name",""),
+                    "동":   str(last_row.get("dong","")).strip(),
+                    "층":   str(last_row.get("floor","")).strip(),
+                    "현재가": last_p,
+                    "하락폭": round(first_p - last_p, 2),
+                    "날짜": last_row["uploadday"].strftime("%m/%d") if pd.notna(last_row.get("uploadday")) else "",
+                })
+        drops.sort(key=lambda x: x["하락폭"], reverse=True)
+        for d in drops[:15]:
+            dong = f"{d['동']}동" if d["동"] not in ("","nan") else ""
+            floor = f"{d['층']}층" if d["층"] not in ("","nan") else ""
+            lines.append(f"  {d['단지']}  {dong} {floor}  {d['현재가']:.2f}억  "
+                         f"▼{d['하락폭']:.2f}억 하락  [{d['날짜']}]")
+    else:
+        lines.append("  (UID 정보 없음)")
+    lines.append("")
 
-
-def make_price_section(df: pd.DataFrame, sel: list) -> str:
-    cut = pd.Timestamp(datetime.now() - timedelta(days=RECENT_DAYS))
-    recent = df[df["uploadday"] >= cut]
-    lines = []
-    for cn in sel:
-        sub = recent[recent["complex_name"] == cn]
-        if sub.empty:
-            sub = df[df["complex_name"] == cn].tail(30)
-        if sub.empty:
-            lines.append(f"  {cn}: 데이터 없음")
-            continue
-        mn  = sub["eok"].min()
-        avg = sub["eok"].mean()
-        mx  = sub["eok"].max()
-        cnt = len(sub)
-        lines.append(f"  {cn}")
-        lines.append(f"    최저 {mn:.2f}억  /  평균 {avg:.2f}억  /  최고 {mx:.2f}억  ({cnt}건)")
-
-        # 가격대별 분포
-        bins = [(0, 3.5, "~3.5억"), (3.5, 4.0, "3.5~4억"), (4.0, 4.5, "4~4.5억"),
-                (4.5, 5.0, "4.5~5억"), (5.0, 99, "5억~")]
-        dist = []
-        for lo, hi, label in bins:
-            n = len(sub[(sub["eok"] >= lo) & (sub["eok"] < hi)])
-            if n > 0: dist.append(f"{label} {n}건")
-        if dist: lines.append(f"    분포: {' | '.join(dist)}")
-    return "\n".join(lines)
-
-
-def make_full_text(df: pd.DataFrame, news: list, sel: list, news_days: int) -> str:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    date_range = ""
-    if not df.empty and "uploadday" in df.columns:
-        mn = df["uploadday"].min(); mx = df["uploadday"].max()
-        date_range = f"{mn.strftime('%Y-%m-%d')} ~ {mx.strftime('%Y-%m-%d')}"
-
-    lines = []
-
+    # ── [4] AI 분석 제안 질문 ─────────────────
+    lines += ["─" * 62, "■ 4. AI 분석 제안 질문", "─" * 62]
     lines += [
-        "=" * 60,
-        "  평택·안성 부동산 분석 요약 (NotebookLM / AI 분석용)",
-        "=" * 60,
-        f"생성일시: {now}",
-        f"분석 단지: {', '.join(sel)}",
-        f"매물 데이터 기간: {date_range}",
-        f"총 매물 레코드: {len(df):,}건  |  뉴스: {len(news)}건",
+        "  Q1. 위 데이터 기준으로 지금 매수 적기인지 판단해줘.",
+        "  Q2. 최근 뉴스의 개발호재가 평택 아파트 가격에 미칠 영향은?",
+        "  Q3. 가격 하락 매물 중 실거주 가치가 높은 매물의 특징은?",
+        "  Q4. 단지별 매물량 변화로 볼 때 시장 분위기는?",
+        "  Q5. 3.5~4억 예산으로 가장 유리한 단지와 조건은?",
         "",
     ]
 
-    lines += ["─" * 60, "■ 뉴스 요약", "─" * 60]
-    lines.append(make_news_section(news, news_days))
-
-    lines += ["─" * 60, "■ 핵심 추천 매물 TOP 5", "─" * 60]
-    lines.append("기준: 저가격(40점) + 가격하락폭(30점) + 신규등록(20점) + 확인매물(10점) + 층수(20점, 저층0·중층10·고층20)")
-    lines.append(make_top5_section(df, sel))
-    lines.append("")
-
-    lines += ["─" * 60, "■ 매물량 주간 동향", "─" * 60]
-    lines.append(make_trend_section(df))
-    lines.append("")
-
-    lines += ["─" * 60, "■ 금액대 분석 (최근 7일 기준)", "─" * 60]
-    lines.append(make_price_section(df, sel))
-    lines.append("")
-
-    lines += ["─" * 60, "■ 단지별 현황 요약", "─" * 60]
-    for cn in sel:
-        sub = df[df["complex_name"] == cn]
-        if sub.empty: continue
-        total = len(sub)
-        recent_cnt = len(sub[sub["uploadday"] >= pd.Timestamp(datetime.now() - timedelta(days=RECENT_DAYS))])
-        mn = sub["eok"].min(); avg = sub["eok"].mean()
-        drop_cnt = 0
-        if "uid" in sub.columns:
-            for uid, g in sub.groupby("uid"):
-                if len(g) >= 2:
-                    first_p = g.sort_values("uploadday")["eok"].iloc[0]
-                    last_p  = g.sort_values("uploadday")["eok"].iloc[-1]
-                    if last_p < first_p: drop_cnt += 1
-        lines.append(f"  {cn}")
-        lines.append(f"    전체 {total}건  |  최근 7일 {recent_cnt}건  |  가격하락 매물 {drop_cnt}건")
-        lines.append(f"    최저가 {mn:.2f}억  /  평균가 {avg:.2f}억")
-    lines.append("")
-
-    lines += ["─" * 60, "■ AI 분석 제안 질문", "─" * 60]
-    lines += [
-        "  1. 위 데이터를 바탕으로 2026년 7월 매수 시 가장 유리한 단지와 매물은?",
-        "  2. 최근 뉴스의 개발호재가 평택 아파트 가격에 미칠 영향은?",
-        "  3. 가격 하락 매물 중 실거주 가치가 높은 매물의 특징은?",
-        "  4. 현재 금액대(1.3억 투자)로 접근 가능한 매물 조건은?",
-        "  5. 매물량 추이로 볼 때 시장 분위기는 매수자 우위인가 매도자 우위인가?",
-        "",
-    ]
-
-    lines.append("=" * 60)
+    lines.append("=" * 62)
     return "\n".join(lines)
 
 
 # ══════════════════════════════════════════════
 # UI
 # ══════════════════════════════════════════════
-st.markdown("#### 📒 NotebookLM 내보내기")
-st.caption("뉴스 요약 · 추천 매물 · 매물 동향 · 금액대 분석을 하나의 텍스트로 묶어 복사합니다.")
+st.markdown("#### 📒 NotebookLM 브리핑 생성")
+st.caption("버튼 1회 클릭으로 최근 1주 매물 + 뉴스를 수집해 복붙용 텍스트를 만듭니다.")
 
-df_all = load_df()
-news   = load_news()
-
+df_all = build_df()
 if df_all.empty:
-    st.error("매물 데이터가 없습니다. rawdata 탭에서 먼저 데이터를 입력해 주세요.")
+    st.error("매물 데이터가 없습니다.")
     st.stop()
 
-# ── 옵션 ──────────────────────────────────────
-c1, c2, c3 = st.columns([3, 1, 1])
-
 complexes = sorted(df_all["complex_name"].dropna().unique().tolist())
-sel = c1.multiselect("분석 단지 선택", complexes,
-                     default=complexes[:4] if len(complexes) >= 4 else complexes)
-news_days = c2.selectbox("뉴스 기간", [7, 14, 30, 60], index=1, format_func=lambda x: f"최근 {x}일")
-if c3.button("🔄 캐시 초기화"):
-    st.cache_data.clear(); st.rerun()
+sel = st.multiselect(
+    "분석 단지 선택",
+    complexes,
+    default=complexes[:4] if len(complexes) >= 4 else complexes,
+)
 
 if not sel:
     st.warning("단지를 1개 이상 선택하세요.")
     st.stop()
 
 df = df_all[df_all["complex_name"].isin(sel)].copy()
-
-# ── 요약 카드 ─────────────────────────────────
-m1, m2, m3, m4 = st.columns(4)
 cut7 = pd.Timestamp(datetime.now() - timedelta(days=7))
-m1.metric("총 매물 레코드", f"{len(df):,}건")
-m2.metric("최근 7일 매물", f"{len(df[df['uploadday'] >= cut7]):,}건")
-m3.metric("수집 뉴스", f"{len(news)}건")
-m4.metric("분석 단지", f"{len(sel)}개")
 
-# ── 텍스트 생성 + 표시 ────────────────────────
+# 요약 지표
+m1, m2, m3 = st.columns(3)
+m1.metric("분석 단지", f"{len(sel)}개")
+m2.metric("전체 매물", f"{len(df):,}건")
+m3.metric("최근 7일 매물", f"{len(df[df['uploadday'] >= cut7]):,}건")
+
 st.divider()
-with st.spinner("텍스트 생성 중..."):
-    full_text = make_full_text(df, news, sel, news_days)
 
-st.markdown("#### 📋 복사용 텍스트")
-st.caption("전체 선택(Ctrl+A) → 복사(Ctrl+C) 후 NotebookLM에 붙여넣기")
+if st.button("🚀 뉴스 수집 + 브리핑 생성", type="primary", use_container_width=True):
+    with st.spinner("뉴스 수집 중... (10~20초 소요)"):
+        news = fetch_news()
+    st.session_state["nlm_news"]  = news
+    st.session_state["nlm_text"]  = make_text(df, news)
+    st.session_state["nlm_time"]  = datetime.now().strftime("%Y-%m-%d %H:%M")
+    st.toast(f"✅ 뉴스 {len(news)}건 수집 완료!")
 
-st.text_area(
-    label="notebooklm_text",
-    label_visibility="collapsed",
-    value=full_text,
-    height=600,
-)
+if "nlm_text" in st.session_state:
+    st.caption(f"생성: {st.session_state.get('nlm_time','')}  |  "
+               f"뉴스 {len(st.session_state.get('nlm_news',[]))}건")
 
-st.download_button(
-    "⬇️ .txt 파일로 다운로드",
-    data=full_text.encode("utf-8"),
-    file_name=f"ptk_summary_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-    mime="text/plain",
-    use_container_width=True,
-)
+    st.markdown("**📋 복사용 텍스트** — 전체선택(Ctrl+A) → 복사(Ctrl+C) 후 NotebookLM에 붙여넣기")
+    st.text_area(
+        label="nlm_out",
+        label_visibility="collapsed",
+        value=st.session_state["nlm_text"],
+        height=700,
+    )
+    st.download_button(
+        "⬇️ .txt 파일로 다운로드",
+        data=st.session_state["nlm_text"].encode("utf-8"),
+        file_name=f"평택부동산브리핑_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
