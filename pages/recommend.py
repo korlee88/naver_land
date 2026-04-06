@@ -477,9 +477,10 @@ if st.session_state.show_results and st.session_state.run_params:
                 f"{row['floor']}층"   if pd.notna(row.get("floor"))                                                      else "",
                 f"{row['direction']}" if pd.notna(row.get("direction")) and str(row.get("direction")) not in ("","nan") else "",
             ] if p_str]
-            drop_txt = f"▼{row['drop_eok']:.2f}억 하락" if row.get("drop_eok", 0) > 0 else ""
-            date_str = f"확인: {row['confirm_date']}" if pd.notna(row.get("confirm_date")) and str(row.get("confirm_date")) not in ("","nan") else ""
-            memo_str = str(row.get("memo",""))[:25] if pd.notna(row.get("memo")) and str(row.get("memo")) not in ("","nan") else ""
+            drop_txt   = f"▼{row['drop_eok']:.2f}억 하락" if row.get("drop_eok", 0) > 0 else ""
+            date_str   = f"확인: {row['confirm_date']}" if pd.notna(row.get("confirm_date")) and str(row.get("confirm_date")) not in ("","nan") else ""
+            memo_str   = str(row.get("memo",""))[:25] if pd.notna(row.get("memo")) and str(row.get("memo")) not in ("","nan") else ""
+            update_str = row["uploadday"].strftime("%Y-%m-%d") if pd.notna(row.get("uploadday")) else ""
 
             def _fmt(v, lbl):
                 if not v: return ""
@@ -511,6 +512,7 @@ if st.session_state.show_results and st.session_state.run_params:
   <div class="rec-name" style="margin-top:4px;">{row.get('complex_name','')}</div>
   <div class="rec-price">{row['eok']:.2f}억</div>
   <div style="margin-top:4px;">{badges}{choguma_badge}</div>
+  {'<div style="font-size:9px;color:#94a3b8;margin-top:2px;">🕐 업데이트: ' + update_str + '</div>' if update_str else ''}
   <div class="rec-detail" style="margin-top:6px;">{"  ·  ".join(parts_d)}</div>
   {'<div class="rec-detail" style="color:#ef4444;">' + drop_txt + '</div>' if drop_txt else ''}
   {'<div class="rec-detail">' + date_str + '</div>' if date_str else ''}
