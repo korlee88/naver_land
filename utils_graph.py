@@ -133,7 +133,15 @@ def build_df():
     if hist.empty or not {"uid", "seen_at", "price_text"}.issubset(hist.columns): return pd.DataFrame()
     if lst.empty  or not {"uid", "complex_name", "trade_type"}.issubset(lst.columns): return pd.DataFrame()
 
-    hist["seen_at"]   = pd.to_datetime(hist["seen_at"], errors="coerce", utc=True).dt.tz_convert(None)
+    hist["seen_at"] = pd.to_datetime(hist["seen_at"], errors="coerce", utc=True).dt.tz_convert(None)
+
+    # seen_at 없는 경우 batch_id 앞 날짜(YYYY-MM-DD)로 보완
+    if "batch_id" in hist.columns:
+        nat_mask = hist["seen_at"].isna()
+        if nat_mask.any():
+            batch_dates = hist.loc[nat_mask, "batch_id"].astype(str).str.extract(r"^(\d{4}-\d{2}-\d{2})", expand=False)
+            hist.loc[nat_mask, "seen_at"] = pd.to_datetime(batch_dates, errors="coerce")
+
     hist              = hist.dropna(subset=["seen_at"]).copy()
     hist["uploadday"] = hist["seen_at"].dt.floor("D")  # 날짜만 (시간 제거)
 
