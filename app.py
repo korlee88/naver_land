@@ -1,5 +1,7 @@
 # app.py — Streamlit 멀티페이지 진입점
+import os
 import streamlit as st
+from db import init_db, is_db_empty, restore_from_sheet
 
 st.set_page_config(
     page_title="매물 분석 대시보드",
@@ -7,6 +9,20 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── DB 자동 복원 (배포 후 DB가 비어있을 때 구글시트에서 자동 복원) ──
+_auto_sheet = os.environ.get("AUTO_RESTORE_SHEET", "")
+if _auto_sheet and "auto_restored" not in st.session_state:
+    st.session_state.auto_restored = True
+    init_db()
+    if is_db_empty():
+        with st.spinner(f"📥 DB가 비어있습니다. '{_auto_sheet}' 시트에서 자동 복원 중..."):
+            try:
+                ins, upd, skip = restore_from_sheet(_auto_sheet)
+                st.success(f"✅ 자동 복원 완료 — 신규 {ins}건 / 업데이트 {upd}건")
+                st.cache_data.clear()
+            except Exception as e:
+                st.warning(f"⚠️ 자동 복원 실패: {e}  |  RAW 관리 페이지에서 수동 복원해주세요.")
 
 pg = st.navigation([
     st.Page("pages/graph_v2.py",    title="가격 추이 차트",  icon="📊", default=True),

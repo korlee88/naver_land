@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import requests
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -324,6 +325,108 @@ def read_history(uid: str = None) -> List[Dict[str, Any]]:
         else:
             cur.execute("SELECT * FROM price_history ORDER BY seen_at DESC")
         return [dict(r) for r in cur.fetchall()]
+
+
+# =========================
+# Auto Restore from Google Sheets
+# =========================
+GAS_URL   = "https://script.google.com/macros/s/AKfycbyeOnBIObdLpqfrNlERenUSdKMWXi30EuXYWpuCNbq_pb6Zg0u2HllVIl4RVaUFpGKw7w/exec"
+GAS_TOKEN = "MY_SECRET_TOKEN"
+
+def is_db_empty() -> bool:
+    """price_history 테이블이 비어있으면 True"""
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM price_history")
+            return cur.fetchone()[0] == 0
+    except Exception:
+        return True
+
+
+def restore_from_sheet(sheet_name: str) -> tuple:
+    """구글시트 → DB 복원. 반환: (inserted, updated, skipped)"""
+    HEADER_MAP = {
+        "날짜": "date", "배치id": "batch_id", "uid": "uid",
+        "단지명": "complex_name", "동": "dong", "평형": "area",
+        "층": "floor", "방향": "direction", "거래유형": "trade_type",
+        "금액": "price_text", "확인매물": "confirm_date",
+        "공인중개사": "provider", "부동산": "office", "메모": "memo",
+        "raw블록": "raw_block",
+    }
+    HEADER_MAP_LEGACY = {
+        "날짜": "date", "단지명": "complex_name", "동": "dong",
+        "평형": "area", "층": "floor", "거래유형": "trade_type",
+        "금액": "price_text", "확인매물": "confirm_date", "메모": "memo",
+    }
+
+    def _s(v):
+        s = str(v).strip() if v not in (None, "") else None
+        return None if s in (None, "None", "") else s
+
+    r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": sheet_name}, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    if "error" in data:
+        raise RuntimeError(data["error"])
+    rows = data.get("rows", [])
+
+    inserted = updated = skipped = 0
+    col_idx = None
+    SKIP_HEADERS = {"날짜", "date", "저장일"}
+
+    for row in rows:
+        if not row or not str(row[0]).strip():
+            continue
+        first = str(row[0]).strip()
+        if first.lower() in {h.lower() for h in SKIP_HEADERS}:
+            col_idx = {}
+            for i, cell in enumerate(row):
+                key = str(cell).strip().lower()
+                if key in HEADER_MAP:
+                    col_idx[HEADER_MAP[key]] = i
+                elif key in HEADER_MAP_LEGACY:
+                    col_idx[HEADER_MAP_LEGACY[key]] = i
+            continue
+
+        def _get(field):
+            if col_idx and field in col_idx:
+                idx = col_idx[field]
+                return _s(row[idx]) if idx < len(row) else None
+            fixed = dict(date=0, batch_id=1, uid=2, complex_name=3, dong=4,
+                         area=5, floor=6, direction=7, trade_type=8, price_text=9,
+                         confirm_date=10, provider=11, office=12, memo=13, raw_block=14)
+            idx = fixed.get(field)
+            return _s(row[idx]) if idx is not None and idx < len(row) else None
+
+        if not col_idx and len(row) < 15:
+            skipped += 1
+            continue
+
+        uid = _get("uid"); complex_name = _get("complex_name")
+        dong = _get("dong"); price_text = _get("price_text")
+        confirm_date = _get("confirm_date")
+
+        if not all([uid, complex_name, dong, price_text, confirm_date]):
+            skipped += 1
+            continue
+        try:
+            result, _ = upsert_listing_and_history({
+                "uid": uid, "complex_name": complex_name, "dong": dong,
+                "area": _get("area"), "trade_type": _get("trade_type"),
+                "floor": _get("floor"), "direction": _get("direction"),
+                "price_text": price_text, "confirm_date": confirm_date,
+                "provider": _get("provider"), "office": _get("office"),
+                "memo": _get("memo"), "raw_block": _get("raw_block"),
+                "batch_id": _get("batch_id"), "seen_at": _get("date"),
+            })
+            if result == "insert": inserted += 1
+            elif result in ("update", "blocked"): updated += 1
+            else: skipped += 1
+        except Exception:
+            skipped += 1
+
+    return inserted, updated, skipped
 
 
 # =========================
