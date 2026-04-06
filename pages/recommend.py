@@ -423,23 +423,22 @@ if st.session_state.show_results and st.session_state.run_params:
     with result_slot.container():
         p = st.session_state.run_params
 
-        # 초품아 검사 결과 미리 표시
+        # 초품아 검사 결과 미리 표시 (성공한 단지만)
         if kakao_key and p.get("choguma_score", 0) > 0:
             with st.spinner("🏫 초품아 여부 확인 중..."):
                 choguma_info = {}
                 for cn in sel:
                     ok, info = _check_choguma(cn, kakao_key, int(p["choguma_radius"]))
                     choguma_info[cn] = (ok, info)
-            cols_ch = st.columns(len(sel))
-            for i, cn in enumerate(sel):
-                ok, info = choguma_info[cn]
-                icon = "🏫✅" if ok else "🏫❌"
-                cols_ch[i].markdown(
-                    f"<div style='font-size:11px;padding:6px;background:"
-                    f"{'#dcfce7' if ok else '#f1f5f9'};border-radius:6px;'>"
-                    f"<b>{icon} {cn}</b><br>{info}</div>",
-                    unsafe_allow_html=True,
-                )
+            ok_list = [(cn, info) for cn, (ok, info) in choguma_info.items() if ok]
+            if ok_list:
+                cols_ch = st.columns(len(ok_list))
+                for i, (cn, info) in enumerate(ok_list):
+                    cols_ch[i].markdown(
+                        f"<div style='font-size:11px;padding:6px;background:#dcfce7;border-radius:6px;'>"
+                        f"<b>🏫✅ {cn}</b><br>{info}</div>",
+                        unsafe_allow_html=True,
+                    )
         else:
             choguma_info = {}
 
