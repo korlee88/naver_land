@@ -1,10 +1,10 @@
 # pages/policy_news.py
 """
-평택·안성 부동산 뉴스 자동 수집기
+평택 부동산 뉴스 자동 수집기
 - Google News RSS 기반 무료 수집
 - 개발호재 / 시세동향 / 정책·규제 / 금리·대출 / 공급·분양 / 전세·임대 카테고리 자동 분류
-- 지역 태그 자동 분류 (동삭동 / 평택 / 안성 / 경기도)
-- JSON 누적 저장 + Markdown 출력 (NotebookLM 활용 가능)
+- 지역 태그 자동 분류 (동삭동 / 평택 / 경기도)
+- JSON 누적 저장 + Markdown 출력
 """
 import streamlit as st
 import pandas as pd
@@ -86,8 +86,6 @@ DEFAULT_QUERIES = [
     "평택 아파트 시세",
     "평택 청약 분양",
     "평택 전세",
-    "안성 아파트",
-    "안성 부동산",
     # 정책·금리
     "부동산 정책 규제 2026",
     "주택 대출 DSR LTV",
@@ -106,7 +104,6 @@ REGION_KEYWORDS = {
     "평택 지제":   ["지제역", "지제"],
     "평택 브레인": ["브레인시티"],
     "평택":        ["평택"],
-    "안성":        ["안성"],
     "경기도":      ["경기도", "경기"],
 }
 
@@ -208,7 +205,7 @@ def detect_regions(text: str) -> list[str]:
     # 하위 지역이 있으면 상위 '평택' 중복 추가 방지
     if any(r.startswith("평택 ") for r in found) and "평택" not in found:
         found.append("평택")
-    return found if found else ["평택"]  # 기본값
+    return found if found else ["평택"]
 
 def detect_direction(title: str, desc: str) -> str:
     s = (title + " " + desc).lower()
@@ -270,7 +267,7 @@ def save_and_merge(new_items: list[dict], append: bool) -> list[dict]:
 
 def to_markdown(items: list[dict]) -> str:
     lines = [
-        "# 평택·안성 부동산 뉴스 브리핑",
+        "# 평택 부동산 뉴스 브리핑",
         f"\n생성일: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  총 {len(items)}건\n",
     ]
     by_cat: dict[str, list] = {}
@@ -294,7 +291,7 @@ def to_markdown(items: list[dict]) -> str:
 # ══════════════════════════════════════════════
 # Streamlit UI
 # ══════════════════════════════════════════════
-st.markdown("#### 🏙️ 평택·안성 부동산 뉴스 수집기")
+st.markdown("#### 🏙️ 평택 부동산 뉴스 수집기")
 st.caption("Google News RSS 기반 무료 자동 수집 | 개발호재 / 시세 / 정책·규제 / 금리·대출 자동 분류")
 
 # ── 설정 바 ────────────────────────────────────

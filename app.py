@@ -33,7 +33,6 @@ pg = st.navigation([
     st.Page("pages/raw_manage.py",  title="RAW 관리",        icon="🧹"),
     st.Page("pages/policy_news.py", title="부동산 뉴스",     icon="📰"),
     st.Page("pages/loan_info.py",   title="보금자리론",      icon="🏦"),
-    st.Page("pages/notebooklm.py",  title="NotebookLM",     icon="🤖"),
 ], position="hidden")
 
 with st.sidebar:
@@ -46,7 +45,6 @@ with st.sidebar:
     st.page_link("pages/raw_manage.py",  label="데이터 관리",        icon="🗂️")
     st.page_link("pages/policy_news.py", label="부동산 뉴스",        icon="📰")
     st.page_link("pages/loan_info.py",   label="보금자리론 정보",    icon="🏦")
-    st.page_link("pages/notebooklm.py",  label="AI 분석 내보내기",   icon="🤖")
     st.divider()
 
 pg.run()
