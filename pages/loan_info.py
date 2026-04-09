@@ -58,8 +58,6 @@ st.caption("사전심사 기준 · 2026년 3월")
 # [1] 사전심사 결과 KPI 카드
 # ════════════════════════════════════════════════════════════
 st.markdown('<div class="sec">📋 사전심사 결과</div>', unsafe_allow_html=True)
-
-# 대출 가능 배지
 st.markdown('<span class="badge-ok">✅ 대출 가능</span>', unsafe_allow_html=True)
 st.write("")
 
@@ -81,89 +79,154 @@ kpi(c5, "DTI",             "18.91%",          "총부채상환비율")
 kpi(c6, "선택 상환방식",   "체증식",           "월 부담 최소화")
 
 # ════════════════════════════════════════════════════════════
-# [2] 상환방식 비교
+# [2] 대출 계산기 (대출금액·금리·기간 변경 가능)
 # ════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">📊 상환방식 비교</div>', unsafe_allow_html=True)
+st.markdown('<div class="sec">🧮 월납입금 계산기</div>', unsafe_allow_html=True)
 
-col_tbl, col_chart = st.columns([1, 1])
+ci1, ci2, ci3 = st.columns(3)
+loan_man  = ci1.number_input("대출금액 (만원)", min_value=1000, max_value=50000,
+                              value=22700, step=100)
+rate_pct  = ci2.number_input("연 금리 (%)", min_value=1.0, max_value=10.0,
+                              value=4.20, step=0.05, format="%.2f")
+term_yr   = ci3.selectbox("대출 기간", [10, 15, 20, 25, 30, 35, 40], index=6)
+
+P  = loan_man * 10_000       # 원 단위
+r  = rate_pct / 100 / 12     # 월 이율
+n  = term_yr * 12             # 총 개월
+
+
+def calc_equal(P, r, n):
+    """원리금균등상환 월납입금"""
+    if r == 0: return P / n
+    return P * r * (1 + r)**n / ((1 + r)**n - 1)
+
+
+def calc_cheugam_schedule(P, r, n):
+    """체감식(원금균등) 연도별 월납입금 (첫달, 마지막달)"""
+    principal = P / n
+    rows = []
+    for yr in range(1, n // 12 + 1):
+        month = (yr - 1) * 12 + 1
+        rem   = P - principal * (month - 1)
+        pay   = principal + rem * r
+        rows.append(round(pay))
+    return rows
+
+
+def calc_cheujeung_schedule(P, r, n, g_annual=0.03):
+    """체증식: 연 g_annual 비율로 월납입금 증가, NPV = P 유지"""
+    g = (1 + g_annual) ** (1/12) - 1   # 월 증가율
+    years = n // 12
+    # 첫달 납입금 P1 계산: sum P1*(1+g)^t / (1+r)^t = P
+    denom = sum(((1+g)/(1+r))**t for t in range(n))
+    P1 = P / denom if denom else 0
+    rows = []
+    for yr in range(years):
+        t   = yr * 12
+        pay = P1 * (1+g)**t
+        rows.append(round(pay))
+    return rows
+
+
+# ── 계산 ─────────────────────────────────────
+equal_monthly  = calc_equal(P, r, n)
+cheugam_rows   = calc_cheugam_schedule(P, r, n)
+cheujeung_rows = calc_cheujeung_schedule(P, r, n)
+
+# 총이자
+total_equal    = equal_monthly * n - P
+total_cheugam  = sum(
+    P/n + (P - P/n*(m-1)) * r
+    for m in range(1, n+1)
+) - P
+total_cheujeung = sum(
+    calc_equal(P, r, n) * (1.03**(t/12)) * 1  # 근사
+    for t in range(n)
+)
+# 정확한 총이자는 실제 스케줄 합산
+g = (1.03)**(1/12) - 1
+P1 = P / sum(((1+g)/(1+r))**t for t in range(n))
+total_cheujeung = sum(P1*(1+g)**t for t in range(n)) - P
+
+# ── 요약 표 ──────────────────────────────────
+st.markdown("##### 상환방식 비교 요약")
+col_tbl, col_chart = st.columns([3, 2])
 
 with col_tbl:
-    repay = pd.DataFrame([
-        {"방식": "체감식",     "월 납입금":      "128만~47만원",         "총 이자": "191,106,592원",
-         "이자_정렬": 191_106_592, "선택": ""},
-        {"방식": "원리금균등", "월 납입금":      "977,150원 (고정)",     "총 이자": "242,186,477원",
-         "이자_정렬": 242_186_477, "선택": ""},
-        {"방식": "체증식",     "월 납입금":      "809,736~1,564,743원",  "총 이자": "271,643,161원",
-         "이자_정렬": 271_643_161, "선택": "✅ 선택"},
+    summary = pd.DataFrame([
+        {
+            "상환방식": "체감식 (원금균등)",
+            "첫달 납입금": f"{cheugam_rows[0]:,}원",
+            "마지막달 납입금": f"{cheugam_rows[-1]:,}원",
+            "총 이자": f"{total_cheugam/1e4:.0f}만원",
+        },
+        {
+            "상환방식": "원리금균등",
+            "첫달 납입금": f"{equal_monthly:,.0f}원",
+            "마지막달 납입금": f"{equal_monthly:,.0f}원",
+            "총 이자": f"{total_equal/1e4:.0f}만원",
+        },
+        {
+            "상환방식": "체증식 ✅",
+            "첫달 납입금": f"{cheujeung_rows[0]:,}원",
+            "마지막달 납입금": f"{cheujeung_rows[-1]:,}원",
+            "총 이자": f"{total_cheujeung/1e4:.0f}만원",
+        },
     ])
-    st.dataframe(
-        repay[["방식", "월 납입금", "총 이자", "선택"]],
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.caption("※ 체감식이 총 이자 가장 적음 · 체증식은 초기 월 부담 가장 낮음")
+    st.dataframe(summary, use_container_width=True, hide_index=True)
+    st.caption("※ 체감식 총이자 최소 · 체증식 초기 부담 최소")
 
 with col_chart:
-    methods  = ["체감식", "원리금균등", "체증식"]
-    interest = [191_106_592, 242_186_477, 271_643_161]
-    colors   = ["#94a3b8", "#94a3b8", "#6366f1"]   # 선택 항목 강조
-
     fig = go.Figure(go.Bar(
-        x=methods, y=interest,
-        marker_color=colors,
-        text=[f"{v/1e8:.2f}억" for v in interest],
+        x=["체감식", "원리금균등", "체증식"],
+        y=[total_cheugam, total_equal, total_cheujeung],
+        marker_color=["#94a3b8", "#f59e0b", "#6366f1"],
+        text=[f"{v/1e4:.0f}만원" for v in [total_cheugam, total_equal, total_cheujeung]],
         textposition="outside",
     ))
     fig.update_layout(
-        title="총 이자 비교 (40년 기준)",
-        yaxis_title="원",
-        yaxis_tickformat=",",
-        plot_bgcolor="white",
-        height=280,
-        margin=dict(l=0, r=0, t=40, b=0),
-        showlegend=False,
+        title="총 이자 비교",
+        yaxis_tickformat=",", plot_bgcolor="white",
+        height=240, margin=dict(l=0, r=0, t=40, b=0), showlegend=False,
     )
     fig.update_yaxes(showgrid=True, gridcolor="#f1f5f9")
     st.plotly_chart(fig, use_container_width=True)
 
-# ════════════════════════════════════════════════════════════
-# [3] 월납입금 흐름 비교 (체증식 vs 원리금균등)
-# ════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">📈 월납입금 흐름 (40년)</div>', unsafe_allow_html=True)
+# ── 연도별 월납입금 상세 표 ───────────────────
+st.markdown("##### 연도별 월납입금 상세")
+years_list = list(range(1, term_yr + 1))
+detail_df  = pd.DataFrame({
+    "연차":         [f"{y}년차" for y in years_list],
+    "체감식 (원금균등)": [f"{v:,}" for v in cheugam_rows],
+    "원리금균등":   [f"{round(equal_monthly):,}"] * term_yr,
+    "체증식":       [f"{v:,}" for v in cheujeung_rows],
+})
+st.dataframe(detail_df, use_container_width=True, hide_index=True, height=280)
 
-years = list(range(1, 41))
-
-# 체증식: 809,736 → 1,564,743 (선형 근사)
-cheujeung = [int(809_736 + (1_564_743 - 809_736) / 39 * (y - 1)) for y in years]
-
-# 체감식: 1,280,000 → 470,000 (선형 근사)
-cheugam   = [int(1_280_000 + (470_000 - 1_280_000) / 39 * (y - 1)) for y in years]
-
-# 원리금균등: 고정
-equal     = [977_150] * 40
+# ── 월납입금 흐름 차트 ────────────────────────
+st.markdown('<div class="sec">📈 월납입금 흐름</div>', unsafe_allow_html=True)
 
 fig2 = go.Figure()
-fig2.add_trace(go.Scatter(x=years, y=cheujeung, name="체증식 (선택)",
+fig2.add_trace(go.Scatter(x=years_list, y=cheujeung_rows, name="체증식 ✅",
                            line=dict(color="#6366f1", width=2.5)))
-fig2.add_trace(go.Scatter(x=years, y=equal,     name="원리금균등",
+fig2.add_trace(go.Scatter(x=years_list, y=[round(equal_monthly)]*term_yr, name="원리금균등",
                            line=dict(color="#f59e0b", width=1.5, dash="dash")))
-fig2.add_trace(go.Scatter(x=years, y=cheugam,   name="체감식",
+fig2.add_trace(go.Scatter(x=years_list, y=cheugam_rows, name="체감식",
                            line=dict(color="#94a3b8", width=1.5, dash="dot")))
 
-# 3년 / 5년 매도 구간 표시
-fig2.add_vrect(x0=0, x1=3, fillcolor="#fee2e2", opacity=0.25, line_width=0,
-               annotation_text="3년↓ 수수료", annotation_position="top left",
-               annotation_font_size=10)
-fig2.add_vrect(x0=3, x1=5, fillcolor="#fef9c3", opacity=0.3, line_width=0,
-               annotation_text="3~5년 목표", annotation_position="top left",
-               annotation_font_size=10)
+if term_yr >= 3:
+    fig2.add_vrect(x0=0, x1=3, fillcolor="#fee2e2", opacity=0.2, line_width=0,
+                   annotation_text="3년↓ 수수료", annotation_position="top left",
+                   annotation_font_size=10)
+if term_yr >= 5:
+    fig2.add_vrect(x0=3, x1=5, fillcolor="#fef9c3", opacity=0.25, line_width=0,
+                   annotation_text="3~5년 목표", annotation_position="top left",
+                   annotation_font_size=10)
 
 fig2.update_layout(
     xaxis_title="경과 연수", yaxis_title="월납입금 (원)",
-    yaxis_tickformat=",",
-    plot_bgcolor="white",
-    height=300,
-    margin=dict(l=0, r=0, t=20, b=0),
+    yaxis_tickformat=",", plot_bgcolor="white",
+    height=300, margin=dict(l=0, r=0, t=20, b=0),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
 )
 fig2.update_yaxes(showgrid=True, gridcolor="#f1f5f9")
@@ -190,7 +253,7 @@ st.markdown("#### 🧮 중도상환수수료 간이 계산기")
 
 c_left, c_right = st.columns(2)
 with c_left:
-    loan_amt = st.number_input("대출 잔액 (만원)", value=22700, step=100)
+    loan_amt = st.number_input("대출 잔액 (만원)", value=int(loan_man), step=100)
 with c_right:
     hold_yr = st.slider("보유 기간 (년)", 0, 5, 2)
 
