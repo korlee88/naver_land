@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# SQLite DB (Railway는 Google Sheets 자동복원 사용)
+naver_land.db
+backup/*.db
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code (로컬 설정)
+.claude/
+
+# 출력 파일
+out/
+
+# Windows 스크립트
+*.ps1

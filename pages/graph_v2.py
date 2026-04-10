@@ -135,11 +135,18 @@ _xr_cols[0].markdown(
     "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>기간</div>",
     unsafe_allow_html=True,
 )
+
+def _set_x_range(label):
+    st.session_state.x_range_label = label
+
 for _xi, _label in enumerate(X_RANGE_OPTIONS):
     _is_sel = st.session_state.x_range_label == _label
     _btn_style = "primary" if _is_sel else "secondary"
-    if _xr_cols[_xi + 1].button(_label, key=f"xr_{_label}", type=_btn_style, use_container_width=True):
-        st.session_state.x_range_label = _label
+    _xr_cols[_xi + 1].button(
+        _label, key=f"xr_{_label}", type=_btn_style,
+        use_container_width=True,
+        on_click=_set_x_range, args=(_label,),
+    )
 
 _x_days = X_RANGE_OPTIONS[st.session_state.x_range_label]
 # dtick: 라벨 겹침 없도록 기간에 따라 자동 조절 (ms 단위)
