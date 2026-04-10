@@ -85,19 +85,11 @@ for _cn in sel:
         _all_vals.extend(_d["eok"].dropna().tolist())
         _all_days.extend(_d["uploadday"].dropna().tolist())
 
-if _all_vals:
-    _auto_min = math.floor(price_sel[0] / Y_TICK) * Y_TICK
-    _auto_max = max(4.2, math.ceil(max(_all_vals) / Y_TICK) * Y_TICK)
-else:
-    _auto_min, _auto_max = math.floor(price_sel[0] / Y_TICK) * Y_TICK, 4.2
-
-# ── Y축 범위 세션 초기화 ──────────────────────
-if "y_min" not in st.session_state or st.session_state.get("_last_auto_min") != _auto_min:
-    st.session_state.y_min = _auto_min
-    st.session_state._last_auto_min = _auto_min
-if "y_max" not in st.session_state or st.session_state.get("_last_auto_max") != _auto_max:
-    st.session_state.y_max = _auto_max
-    st.session_state._last_auto_max = _auto_max
+# ── Y축 범위 세션 초기화 (기본: 3.0 ~ 4.5) ───
+if "y_min" not in st.session_state:
+    st.session_state.y_min = 3.0
+if "y_max" not in st.session_state:
+    st.session_state.y_max = 4.5
 
 # ── Y축 범위 조절 컨트롤 ─────────────────────
 _cc = st.columns([2, 1, 1, 1, 1, 1, 1, 1, 1, 2])
@@ -133,9 +125,31 @@ if _cc[8].button("▲", key="y_max_up", use_container_width=True):
 Y_MIN = st.session_state.y_min
 Y_MAX = st.session_state.y_max
 
+# ── X축 기간 선택 버튼 ────────────────────────
+X_RANGE_OPTIONS = {"1주": 7, "2주": 14, "3주": 21, "1달": 30, "2달": 60}
+if "x_range_label" not in st.session_state:
+    st.session_state.x_range_label = "1달"
+
+_xr_cols = st.columns([2] + [1] * len(X_RANGE_OPTIONS) + [2])
+_xr_cols[0].markdown(
+    "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>기간</div>",
+    unsafe_allow_html=True,
+)
+for _xi, _label in enumerate(X_RANGE_OPTIONS):
+    _is_sel = st.session_state.x_range_label == _label
+    _btn_style = "primary" if _is_sel else "secondary"
+    if _xr_cols[_xi + 1].button(_label, key=f"xr_{_label}", type=_btn_style, use_container_width=True):
+        st.session_state.x_range_label = _label
+
+_x_days = X_RANGE_OPTIONS[st.session_state.x_range_label]
+# dtick: 라벨 겹침 없도록 기간에 따라 자동 조절 (ms 단위)
+_DAY_MS = 86_400_000
+_DTICK_MAP = {7: _DAY_MS, 14: _DAY_MS * 2, 21: _DAY_MS * 3, 30: _DAY_MS * 5, 60: _DAY_MS * 10}
+X_DTICK = _DTICK_MAP.get(_x_days, _DAY_MS * 5)
+
 if _all_days:
-    X_MIN = min(_all_days)
     X_MAX = max(_all_days)
+    X_MIN = X_MAX - timedelta(days=_x_days)
 else:
     X_MIN, X_MAX = None, None
 
@@ -228,9 +242,9 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             legend=dict(orientation="h", y=-0.22, x=0, font=dict(size=10)),
             hovermode="x unified",
             xaxis=dict(
-                tickfont=dict(size=10), tickangle=30,
-                tickformat="%m/%d",       # 날짜만 표시 (MM/DD)
-                dtick="M0.5",             # 약 2주 간격
+                tickfont=dict(size=10), tickangle=45,
+                tickformat="%m/%d",
+                dtick=X_DTICK,
                 range=[X_MIN, X_MAX] if X_MIN is not None else None,
                 gridcolor="#f1f5f9", showgrid=True,
             ),

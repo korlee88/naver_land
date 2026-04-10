@@ -153,8 +153,9 @@ def make_text(df: pd.DataFrame, news: list[dict]) -> str:
         lines.append(f"\n【{cn}】  {cnt}건")
         lines.append(f"  최저 {mn:.2f}억  /  평균 {avg:.2f}억  /  최고 {mx:.2f}억{chg}")
 
-        # 개별 매물 목록 (최저가 순 상위 10건)
-        top = use.sort_values("eok").head(10)
+        # 개별 매물 목록 - 마지막 업로드 일자의 매물 전체
+        last_day = use["uploadday"].max()
+        top = use[use["uploadday"] == last_day].sort_values("eok")
         for _, row in top.iterrows():
             dong  = str(row.get("dong","")).strip()
             floor = str(row.get("floor","")).strip()
