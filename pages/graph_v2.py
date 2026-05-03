@@ -69,7 +69,6 @@ st.markdown('<div class="sec">📊 가격 추이</div>', unsafe_allow_html=True)
 
 COLS_PER_ROW = 3
 Y_TICK = 0.3          # 3천만원 단위
-STEP   = 0.1          # 버튼 1회 조절 단위 (천만원)
 
 # 모든 단지의 중상층 데이터를 모아 공통 Y·X축 범위 계산
 import math
@@ -91,62 +90,30 @@ if "y_min" not in st.session_state:
 if "y_max" not in st.session_state:
     st.session_state.y_max = 4.5
 
-# ── Y축 범위 조절 컨트롤 ─────────────────────
-_cc = st.columns([2, 1, 1, 1, 1, 1, 1, 1, 1, 2])
-
-_cc[1].markdown(
-    "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>Y최솟값</div>",
-    unsafe_allow_html=True,
-)
-if _cc[2].button("▼", key="y_min_dn", use_container_width=True):
-    st.session_state.y_min = round(st.session_state.y_min - STEP, 2)
-_cc[3].markdown(
-    f"<div style='font-size:11px;font-weight:700;text-align:center;padding-top:6px;'>"
-    f"{st.session_state.y_min:.1f}억</div>",
-    unsafe_allow_html=True,
-)
-if _cc[4].button("▲", key="y_min_up", use_container_width=True):
-    st.session_state.y_min = round(min(st.session_state.y_min + STEP, st.session_state.y_max - STEP), 2)
-
-_cc[5].markdown(
-    "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>Y최댓값</div>",
-    unsafe_allow_html=True,
-)
-if _cc[6].button("▼", key="y_max_dn", use_container_width=True):
-    st.session_state.y_max = round(max(st.session_state.y_max - STEP, st.session_state.y_min + STEP), 2)
-_cc[7].markdown(
-    f"<div style='font-size:11px;font-weight:700;text-align:center;padding-top:6px;'>"
-    f"{st.session_state.y_max:.1f}억</div>",
-    unsafe_allow_html=True,
-)
-if _cc[8].button("▲", key="y_max_up", use_container_width=True):
-    st.session_state.y_max = round(st.session_state.y_max + STEP, 2)
-
-Y_MIN = st.session_state.y_min
-Y_MAX = st.session_state.y_max
-
-# ── X축 기간 선택 버튼 ────────────────────────
+# ── X축 기간 옵션 ──────────────────────────────
 X_RANGE_OPTIONS = {"1주": 7, "2주": 14, "3주": 21, "1달": 30, "2달": 60}
 if "x_range_label" not in st.session_state:
     st.session_state.x_range_label = "1달"
 
-_xr_cols = st.columns([2] + [1] * len(X_RANGE_OPTIONS) + [2])
-_xr_cols[0].markdown(
-    "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>기간</div>",
-    unsafe_allow_html=True,
-)
-
 def _set_x_range(label):
     st.session_state.x_range_label = label
 
+# ── Y축 범위 + 기간 한 줄 컨트롤 ─────────────────
+_ctrl = st.columns([1.3, 1.3, 0.15, 0.45, 0.7, 0.7, 0.7, 0.7, 0.7])
+_ctrl[0].number_input("Y 최솟값 (억)", key="y_min", step=0.1, format="%.1f", min_value=0.0)
+_ctrl[1].number_input("Y 최댓값 (억)", key="y_max", step=0.1, format="%.1f", min_value=0.1)
+_ctrl[2].markdown("<div style='padding-top:28px;text-align:center;color:#e2e8f0;'>│</div>", unsafe_allow_html=True)
+_ctrl[3].markdown("<div style='font-size:10px;color:#64748b;padding-top:30px;'>기간</div>", unsafe_allow_html=True)
 for _xi, _label in enumerate(X_RANGE_OPTIONS):
-    _is_sel = st.session_state.x_range_label == _label
-    _btn_style = "primary" if _is_sel else "secondary"
-    _xr_cols[_xi + 1].button(
-        _label, key=f"xr_{_label}", type=_btn_style,
+    _ctrl[_xi + 4].button(
+        _label, key=f"xr_{_label}",
+        type="primary" if st.session_state.x_range_label == _label else "secondary",
         use_container_width=True,
         on_click=_set_x_range, args=(_label,),
     )
+
+Y_MIN = st.session_state.y_min
+Y_MAX = st.session_state.y_max
 
 _x_days = X_RANGE_OPTIONS[st.session_state.x_range_label]
 # dtick: 라벨 겹침 없도록 기간에 따라 자동 조절 (ms 단위)
