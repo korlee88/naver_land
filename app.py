@@ -16,11 +16,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── DB 초기화 (항상 실행 — 테이블 없으면 생성) ──
+init_db()
+
 # ── DB 자동 복원 (배포 후 DB가 비어있을 때 구글시트에서 자동 복원) ──
 _auto_sheet = os.environ.get("AUTO_RESTORE_SHEET", "")
 if _auto_sheet and "auto_restored" not in st.session_state:
     st.session_state.auto_restored = True
-    init_db()
     if is_db_empty():
         with st.spinner(f"📥 DB가 비어있습니다. '{_auto_sheet}' 시트에서 자동 복원 중..."):
             try:
