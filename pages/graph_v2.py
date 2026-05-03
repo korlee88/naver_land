@@ -84,11 +84,17 @@ for _cn in sel:
         _all_vals.extend(_d["eok"].dropna().tolist())
         _all_days.extend(_d["uploadday"].dropna().tolist())
 
-# ── Y축 범위 세션 초기화 (기본: 3.0 ~ 4.5) ───
-if "y_min" not in st.session_state:
-    st.session_state.y_min = 3.0
-if "y_max" not in st.session_state:
-    st.session_state.y_max = 4.5
+# ── Y축 기본값: 데이터 최고가+0.2 / 최저가-0.2 자동 계산 ──
+_data_max = max(_all_vals) if _all_vals else 4.5
+_data_min = min(_all_vals) if _all_vals else 3.0
+_default_y_max = round(math.ceil(_data_max * 10) / 10 + 0.2, 1)
+_default_y_min = round(math.floor(_data_min * 10) / 10 - 0.2, 1)
+
+# 첫 로드 또는 단지 선택 변경 시 Y축 자동 초기화
+if st.session_state.get("_prev_sel_graph") != sel or "y_min" not in st.session_state:
+    st.session_state.y_min = _default_y_min
+    st.session_state.y_max = _default_y_max
+st.session_state._prev_sel_graph = sel
 
 # ── X축 기간 옵션 ──────────────────────────────
 X_RANGE_OPTIONS = {"1주": 7, "2주": 14, "3주": 21, "1달": 30, "2달": 60}

@@ -329,7 +329,7 @@ def render_sidebar(df_all, show_drop_th=False):
         complex_list = sorted(df_all["complex_name"].unique().tolist())
         sel = st.multiselect(
             "단지 선택 (최대 4개 권장)", complex_list,
-            default=complex_list[:min(3, len(complex_list))],
+            default=complex_list[:min(4, len(complex_list))],
             key="sidebar_sel_complexes",
         )
 
