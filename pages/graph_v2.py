@@ -100,8 +100,10 @@ def _set_x_range(label):
 
 # ── Y축 범위 + 기간 한 줄 컨트롤 ─────────────────
 _ctrl = st.columns([1.3, 1.3, 0.15, 0.45, 0.7, 0.7, 0.7, 0.7, 0.7])
-_ctrl[0].number_input("Y 최솟값 (억)", key="y_min", step=0.1, format="%.1f", min_value=0.0)
-_ctrl[1].number_input("Y 최댓값 (억)", key="y_max", step=0.1, format="%.1f", min_value=0.1)
+_new_y_min = _ctrl[0].number_input("Y 최솟값 (억)", value=float(st.session_state.y_min), step=0.1, format="%.1f", min_value=0.0)
+_new_y_max = _ctrl[1].number_input("Y 최댓값 (억)", value=float(st.session_state.y_max), step=0.1, format="%.1f", min_value=0.1)
+st.session_state.y_min = _new_y_min
+st.session_state.y_max = _new_y_max
 _ctrl[2].markdown("<div style='padding-top:28px;text-align:center;color:#e2e8f0;'>│</div>", unsafe_allow_html=True)
 _ctrl[3].markdown("<div style='font-size:10px;color:#64748b;padding-top:30px;'>기간</div>", unsafe_allow_html=True)
 for _xi, _label in enumerate(X_RANGE_OPTIONS):
