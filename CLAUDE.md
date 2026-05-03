@@ -18,7 +18,15 @@ streamlit run app.py
 pip install -r requirements.txt
 ```
 
-**Deploy (Railway):**
+**Deploy (Streamlit Community Cloud — 무료):**
+- https://share.streamlit.io 에서 GitHub 리포 연결
+- Main file: `app.py` (시작 명령 자동 처리, 별도 설정 불필요)
+- 시스템 패키지: `packages.txt` 자동 인식 (fonts-nanum 설치)
+- Secrets: 대시보드 → Settings → Secrets에 환경변수 입력
+  - `AUTO_RESTORE_SHEET = "시트명"` (재시작 시 Google Sheets에서 자동복원)
+  - `DB_PATH` 미설정 시 `/tmp/naver_land.db` 사용 (ephemeral)
+
+**Deploy (Railway — 유료):**
 ```
 python setup_fonts.py && streamlit run app.py --server.port $PORT --server.address 0.0.0.0
 ```
@@ -54,7 +62,7 @@ This is a **Streamlit multi-page app** for tracking and analyzing Korean real es
 - **`utils_graph.py`** — Shared logic for `graph_v2` and `recommend`: `build_df()` loads and parses all listings, `make_daily()` builds time series, `compute_score()` / `get_badges()` handle ranking, `render_sidebar()` draws the common filter sidebar.
 - **`utils_uid.py`** — `make_uid()` generates a SHA-1 UID from `(complex_name, dong, area, trade_type, direction)` — floor is intentionally excluded so the same unit type groups together.
 - **`utils_auth.py`** — Password auth (currently disabled via early `return` in `require_auth()`).
-- **`utils_style.py`** — `inject_korean_font()` must be called at the top of every page to fix Korean font rendering on Railway/Linux.
+- **`utils_style.py`** — `inject_korean_font()` must be called at the top of every page to fix Korean font rendering on Linux/cloud.
 
 ### Data flow
 
@@ -71,5 +79,5 @@ This is a **Streamlit multi-page app** for tracking and analyzing Korean real es
 
 | Variable | Purpose |
 |---|---|
-| `DB_PATH` | SQLite file path (default: `/app/data/naver_land.db`) |
+| `DB_PATH` | SQLite file path (default: `/tmp/naver_land.db`) |
 | `AUTO_RESTORE_SHEET` | Google Sheet name to auto-restore from on empty DB |

@@ -1,7 +1,13 @@
 # app.py — Streamlit 멀티페이지 진입점
 import os
 import streamlit as st
+import setup_fonts
 from db import init_db, is_db_empty, restore_from_sheet
+
+# 폰트 초기화 (Streamlit Cloud: packages.txt 설치 폰트 우선, 없으면 다운로드)
+if "fonts_initialized" not in st.session_state:
+    setup_fonts.main()
+    st.session_state.fonts_initialized = True
 
 st.set_page_config(
     page_title="매물 분석 대시보드",

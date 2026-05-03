@@ -5,8 +5,9 @@ import requests
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 
-# Railway Volume 마운트 경로 우선, 없으면 로컬 경로
-DB_PATH = os.environ.get("DB_PATH", "/app/data/naver_land.db")
+# DB_PATH 환경변수 우선. 기본값은 /tmp (Streamlit Cloud 등 ephemeral 환경)
+# 로컬 영구저장은 DB_PATH=./naver_land.db 등으로 지정
+DB_PATH = os.environ.get("DB_PATH", "/tmp/naver_land.db")
 
 
 # =========================
@@ -26,7 +27,9 @@ def get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     with get_conn() as conn:
         cur = conn.cursor()
 
