@@ -35,6 +35,39 @@ require_auth()
 
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 
+# ── 모바일 반응형 CSS ─────────────────────────
+st.markdown("""
+<style>
+/* 모바일(768px 이하): 차트 컬럼 1열 전환 */
+@media screen and (max-width: 768px) {
+    [data-testid="column"]:has([data-testid="stPlotlyChart"]) {
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        min-width: 100% !important;
+    }
+    /* 가격 현황 카드도 1열 */
+    [data-testid="column"]:has(div[style*="border-radius:10px"]) {
+        width: 100% !important;
+        flex: 0 0 100% !important;
+        min-width: 100% !important;
+    }
+    /* 기간 버튼 폰트 축소 */
+    [data-testid="stHorizontalBlock"] button p {
+        font-size: 11px !important;
+        padding: 0 !important;
+    }
+    /* 차트 높이 모바일 최적화 */
+    [data-testid="stPlotlyChart"] > div {
+        height: 280px !important;
+    }
+    [data-testid="stPlotlyChart"] .js-plotly-plot,
+    [data-testid="stPlotlyChart"] .plot-container {
+        height: 280px !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ── 사이드바 ─────────────────────────────────
 df_all = build_df()
 if df_all.empty:
@@ -104,16 +137,18 @@ if "x_range_label" not in st.session_state:
 def _set_x_range(label):
     st.session_state.x_range_label = label
 
-# ── Y축 범위 + 기간 한 줄 컨트롤 ─────────────────
-_ctrl = st.columns([1.3, 1.3, 0.15, 0.45, 0.7, 0.7, 0.7, 0.7, 0.7])
-_new_y_min = _ctrl[0].number_input("Y 최솟값 (억)", value=float(st.session_state.y_min), step=0.1, format="%.1f", min_value=0.0)
-_new_y_max = _ctrl[1].number_input("Y 최댓값 (억)", value=float(st.session_state.y_max), step=0.1, format="%.1f", min_value=0.1)
+# ── Y축 범위 (2열 입력) ───────────────────────
+_y_cols = st.columns([1.5, 1.5, 7])
+_new_y_min = _y_cols[0].number_input("Y 최솟값 (억)", value=float(st.session_state.y_min), step=0.1, format="%.1f", min_value=0.0)
+_new_y_max = _y_cols[1].number_input("Y 최댓값 (억)", value=float(st.session_state.y_max), step=0.1, format="%.1f", min_value=0.1)
 st.session_state.y_min = _new_y_min
 st.session_state.y_max = _new_y_max
-_ctrl[2].markdown("<div style='padding-top:28px;text-align:center;color:#e2e8f0;'>│</div>", unsafe_allow_html=True)
-_ctrl[3].markdown("<div style='font-size:10px;color:#64748b;padding-top:30px;'>기간</div>", unsafe_allow_html=True)
+
+# ── 기간 선택 버튼 ────────────────────────────
+_xr_cols = st.columns([0.5] + [1] * len(X_RANGE_OPTIONS) + [6])
+_xr_cols[0].markdown("<div style='font-size:10px;color:#64748b;padding-top:8px;'>기간</div>", unsafe_allow_html=True)
 for _xi, _label in enumerate(X_RANGE_OPTIONS):
-    _ctrl[_xi + 4].button(
+    _xr_cols[_xi + 1].button(
         _label, key=f"xr_{_label}",
         type="primary" if st.session_state.x_range_label == _label else "secondary",
         use_container_width=True,
@@ -229,6 +264,7 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 dtick=X_DTICK,
                 range=[X_MIN, X_MAX] if X_MIN is not None else None,
                 gridcolor="#f1f5f9", showgrid=True,
+                fixedrange=True,
             ),
             yaxis=dict(
                 title=dict(text="억", font=dict(size=10)),
@@ -236,11 +272,13 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 showgrid=True, gridcolor="#f1f5f9",
                 dtick=Y_TICK, tickformat=".1f",
                 range=[Y_MIN, Y_MAX],
+                fixedrange=True,
             ),
         )
         chart_cols[col_idx].plotly_chart(fig, use_container_width=True,
                                          config={"staticPlot": False,
-                                                 "displayModeBar": False})
+                                                 "displayModeBar": False,
+                                                 "scrollZoom": False})
         chart_cols[col_idx].caption(floor_comment)
 
 
