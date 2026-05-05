@@ -29,75 +29,16 @@ require_auth()
 
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 
-# ── 모바일 전용 CSS ────────────────────────────
+# ── 모바일 전용 CSS (최소화) ───────────────────
 st.markdown("""
 <style>
-/* 페이지 가로 오버플로우 완전 차단 */
-html, body { overflow-x: hidden !important; }
 .block-container {
     padding: 0.5rem 0.6rem !important;
-    max-width: 100vw !important;
-    overflow-x: hidden !important;
-    box-sizing: border-box !important;
 }
-
-/* 모든 수평 블록 오버플로우 차단 */
-[data-testid="stHorizontalBlock"] {
-    max-width: 100% !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-}
-
-/* Y축 입력 2열: 각 50% 강제 */
-[data-testid="stHorizontalBlock"]:has([data-testid="stNumberInput"]) {
-    flex-wrap: nowrap !important;
-    gap: 6px !important;
-}
-[data-testid="stHorizontalBlock"]:has([data-testid="stNumberInput"]) > [data-testid="column"] {
-    flex: 1 1 0% !important;
-    min-width: 0 !important;
-    max-width: calc(50% - 3px) !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-}
-[data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
-[data-baseweb="input"], [data-baseweb="base-input"] { min-width: 0 !important; }
-[data-testid="stNumberInput"] label { font-size: 11px !important; }
-[data-testid="stNumberInput"] input {
-    font-size: 14px !important;
-    height: 38px !important;
-    padding: 4px 6px !important;
-}
-[data-testid="stNumberInput"] button { height: 38px !important; width: 28px !important; }
-
-/* 기간 버튼 5열: 각 20% 강제 */
-[data-testid="stHorizontalBlock"]:has([data-testid="stButton"]) {
-    flex-wrap: nowrap !important;
-    gap: 3px !important;
-}
-[data-testid="stHorizontalBlock"]:has([data-testid="stButton"]) > [data-testid="column"] {
-    flex: 1 1 0% !important;
-    min-width: 0 !important;
-    max-width: calc(20% - 3px) !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-}
-[data-testid="stButton"] { width: 100% !important; min-width: 0 !important; }
-[data-testid="stButton"] button {
-    width: 100% !important;
-    height: 40px !important;
-    min-width: 0 !important;
-    padding: 0 !important;
-    border-radius: 8px !important;
-    overflow: hidden !important;
-}
-[data-testid="stButton"] button p {
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-}
+/* radio 버튼 폰트 */
+[data-testid="stRadio"] label { font-size: 13px !important; }
+/* 슬라이더 레이블 */
+[data-testid="stSlider"] label { font-size: 11px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -153,25 +94,26 @@ X_OPTS = {"1주": 7, "2주": 14, "3주": 21, "1달": 30, "2달": 60}
 if "x_range_m" not in st.session_state:
     st.session_state.x_range_m = "1달"
 
-def _set_x(label):
-    st.session_state.x_range_m = label
+# ── Y축 범위 슬라이더 ──────────────────────────
+_y_range = st.slider(
+    "Y축 범위 (억)",
+    min_value=0.0, max_value=15.0,
+    value=(float(st.session_state.y_min_m), float(st.session_state.y_max_m)),
+    step=0.1, format="%.1f억",
+)
+st.session_state.y_min_m = _y_range[0]
+st.session_state.y_max_m = _y_range[1]
 
-# ── Y축 입력 (2열) ─────────────────────────────
-_yc = st.columns(2)
-_new_y_min = _yc[0].number_input("Y 최솟값 (억)", value=float(st.session_state.y_min_m), step=0.1, format="%.1f", min_value=0.0)
-_new_y_max = _yc[1].number_input("Y 최댓값 (억)", value=float(st.session_state.y_max_m), step=0.1, format="%.1f", min_value=0.1)
-st.session_state.y_min_m = _new_y_min
-st.session_state.y_max_m = _new_y_max
-
-# ── 기간 버튼 (5열) ────────────────────────────
-_xc = st.columns(len(X_OPTS))
-for _i, _label in enumerate(X_OPTS):
-    _xc[_i].button(
-        _label, key=f"xr_m_{_label}",
-        type="primary" if st.session_state.x_range_m == _label else "secondary",
-        use_container_width=True,
-        on_click=_set_x, args=(_label,),
-    )
+# ── 기간 선택 (radio) ──────────────────────────
+_period_keys = list(X_OPTS.keys())
+_cur_idx = _period_keys.index(st.session_state.x_range_m)
+_selected = st.radio(
+    "기간", _period_keys,
+    index=_cur_idx,
+    horizontal=True,
+    label_visibility="collapsed",
+)
+st.session_state.x_range_m = _selected
 
 Y_MIN = st.session_state.y_min_m
 Y_MAX = st.session_state.y_max_m
