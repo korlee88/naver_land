@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from utils_style import inject_korean_font
 from utils_auth  import require_auth
@@ -215,37 +216,56 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
 
         _hover = "%{x|%Y-%m-%d}<br><b>%{y:.2f}억</b><extra></extra>"
 
-        fig = go.Figure()
+        _n_actual = d2[d2["n"] > 0]
+        _n_max    = int(_n_actual["n"].max()) if not _n_actual.empty else 5
 
-        # 최고가 (배경 느낌, 먼저 그림)
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # 최고-최저 범위 밴드
         fig.add_trace(go.Scatter(
-            x=x[mask], y=d2["max_eok"][mask],
-            name="최고",
+            x=x[mask], y=d2["max_eok"][mask], name="최고",
             mode="lines+markers",
-            line=dict(color=C_MAX, width=1.5),
-            marker=dict(color=C_MAX, size=4),
+            line=dict(color=C_MAX, width=1.2),
+            marker=dict(color=C_MAX, size=3),
             hovertemplate=_hover,
-        ))
+        ), secondary_y=False)
+        fig.add_trace(go.Scatter(
+            x=x[mask], y=d2["min_eok"][mask],
+            mode="none", name="가격범위",
+            fill="tonexty", fillcolor="rgba(37,99,235,0.06)",
+            showlegend=False, hoverinfo="skip",
+        ), secondary_y=False)
+
         # 평균가
         avg_mask = mask & d2["avg_eok"].notna()
         if avg_mask.any():
             fig.add_trace(go.Scatter(
-                x=x[avg_mask], y=d2["avg_eok"][avg_mask],
-                name="평균",
-                mode="lines+markers",
+                x=x[avg_mask], y=d2["avg_eok"][avg_mask], name="평균",
+                mode="lines",
                 line=dict(color=C_AVG, width=1.5, dash="dot"),
-                marker=dict(color=C_AVG, size=4),
                 hovertemplate=_hover,
-            ))
-        # 최저가 (가장 위)
+            ), secondary_y=False)
+
+        # 7일 추세선 (최저가 이동평균)
+        _trend_mask = d2["min_7avg"].notna()
+        if _trend_mask.any():
+            fig.add_trace(go.Scatter(
+                x=d2["uploadday"][_trend_mask], y=d2["min_7avg"][_trend_mask],
+                name="추세(7일)",
+                mode="lines",
+                line=dict(color="#a78bfa", width=1.5, dash="dash"),
+                hovertemplate="%{x|%Y-%m-%d}<br>추세 %{y:.2f}억<extra></extra>",
+            ), secondary_y=False)
+
+        # 최저가 (주선)
         fig.add_trace(go.Scatter(
-            x=x[mask], y=d2["min_eok"][mask],
-            name="최저",
+            x=x[mask], y=d2["min_eok"][mask], name="최저",
             mode="lines+markers",
             line=dict(color=C_MIN, width=2.5),
-            marker=dict(color=C_MIN, size=5, line=dict(color="white", width=1)),
+            marker=dict(color=C_MIN, size=5, line=dict(color="white", width=1.5)),
             hovertemplate=_hover,
-        ))
+        ), secondary_y=False)
+
         # 급락 마커
         drops = d2[d2["is_drop"]]
         if not drops.empty:
@@ -254,12 +274,21 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 mode="markers", name="▼급락",
                 marker=dict(symbol="triangle-down", size=9, color="#ef4444"),
                 hovertemplate="%{x|%Y-%m-%d}<br>▼ 급락 %{y:.2f}억<extra></extra>",
-            ))
+            ), secondary_y=False)
+
+        # 매물 수량 (보조 Y축 막대)
+        if not _n_actual.empty:
+            fig.add_trace(go.Bar(
+                x=_n_actual["uploadday"], y=_n_actual["n"],
+                name="매물수",
+                marker_color="rgba(148,163,184,0.3)",
+                hovertemplate="%{x|%m/%d}<br>매물 %{y}건<extra></extra>",
+            ), secondary_y=True)
 
         fig.update_layout(
             title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
-            height=340,
-            margin=dict(l=50, r=20, t=36, b=70),
+            height=360,
+            margin=dict(l=50, r=40, t=36, b=70),
             plot_bgcolor="white",
             legend=dict(orientation="h", y=-0.22, x=0, font=dict(size=10)),
             hovermode="x unified",
@@ -277,6 +306,14 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 showgrid=True, gridcolor="#f1f5f9",
                 dtick=Y_TICK, tickformat=".1f",
                 range=[Y_MIN, Y_MAX],
+                fixedrange=True,
+            ),
+            yaxis2=dict(
+                showgrid=False,
+                showticklabels=True,
+                tickfont=dict(size=8, color="#94a3b8"),
+                ticksuffix="건",
+                range=[0, _n_max * 6],
                 fixedrange=True,
             ),
         )

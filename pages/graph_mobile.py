@@ -8,6 +8,7 @@ import re as _re
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from utils_style import inject_korean_font
 from utils_auth  import require_auth
@@ -29,7 +30,7 @@ require_auth()
 
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 
-# ── 모바일 전용 CSS (최소화) ───────────────────
+# ── 모바일 전용 CSS (최소화) ─────────────────
 st.markdown("""
 <style>
 .block-container {
@@ -42,7 +43,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── 데이터 로드 ────────────────────────────────
+# ── 데이터 로드 ────────────────────────────
 df_all = build_df()
 if df_all.empty:
     st.error("데이터 없음"); st.stop()
@@ -78,7 +79,7 @@ for _cn in sel:
         _all_vals.extend(_d["eok"].dropna().tolist())
         _all_days.extend(_d["uploadday"].dropna().tolist())
 
-# ── Y축 자동 초기화 ────────────────────────────
+# ── Y축 자동 초기화 ──────────────────────────
 _data_max = max(_all_vals) if _all_vals else 4.5
 _data_min = min(_all_vals) if _all_vals else 3.0
 _default_y_max = round(math.ceil(_data_max * 10) / 10 + 0.2, 1)
@@ -89,7 +90,7 @@ if st.session_state.get("_prev_sel_mobile") != sel or "y_min_m" not in st.sessio
     st.session_state.y_max_m = _default_y_max
 st.session_state._prev_sel_mobile = sel
 
-# ── X축 기간 옵션 ──────────────────────────────
+# ── X축 기간 옵션 ────────────────────────────
 X_OPTS = {"1주": 7, "2주": 14, "3주": 21, "1달": 30, "2달": 60}
 if "x_range_m" not in st.session_state:
     st.session_state.x_range_m = "1달"
@@ -152,30 +153,45 @@ for cname in sel:
     x    = d2["uploadday"]
     mask = x.notna() & d2["min_eok"].notna()
 
-    fig = go.Figure()
+    _n_actual = d2[d2["n"] > 0]
+    _n_max    = int(_n_actual["n"].max()) if not _n_actual.empty else 5
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # 최고-최저 범위 밴드
     fig.add_trace(go.Scatter(
         x=x[mask], y=d2["max_eok"][mask], name="최고",
         mode="lines+markers",
-        line=dict(color=C_MAX, width=1.5),
-        marker=dict(color=C_MAX, size=4),
+        line=dict(color=C_MAX, width=1.2),
+        marker=dict(color=C_MAX, size=3),
         hovertemplate=_hover,
-    ))
+    ), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        x=x[mask], y=d2["min_eok"][mask],
+        mode="none", name="가격범위",
+        fill="tonexty", fillcolor="rgba(37,99,235,0.06)",
+        showlegend=False, hoverinfo="skip",
+    ), secondary_y=False)
+
+    # 평균가
     avg_mask = mask & d2["avg_eok"].notna()
     if avg_mask.any():
         fig.add_trace(go.Scatter(
             x=x[avg_mask], y=d2["avg_eok"][avg_mask], name="평균",
-            mode="lines+markers",
+            mode="lines",
             line=dict(color=C_AVG, width=1.5, dash="dot"),
-            marker=dict(color=C_AVG, size=4),
             hovertemplate=_hover,
-        ))
+        ), secondary_y=False)
+
+    # 최저가 (주선)
     fig.add_trace(go.Scatter(
         x=x[mask], y=d2["min_eok"][mask], name="최저",
         mode="lines+markers",
         line=dict(color=C_MIN, width=2.5),
-        marker=dict(color=C_MIN, size=5, line=dict(color="white", width=1)),
+        marker=dict(color=C_MIN, size=5, line=dict(color="white", width=1.5)),
         hovertemplate=_hover,
-    ))
+    ), secondary_y=False)
+
     drops = d2[d2["is_drop"]]
     if not drops.empty:
         fig.add_trace(go.Scatter(
@@ -183,12 +199,21 @@ for cname in sel:
             mode="markers", name="▼급락",
             marker=dict(symbol="triangle-down", size=9, color="#ef4444"),
             hovertemplate="%{x|%Y-%m-%d}<br>▼ 급락 %{y:.2f}억<extra></extra>",
-        ))
+        ), secondary_y=False)
+
+    # 매물 수량 (보조 Y축 막대)
+    if not _n_actual.empty:
+        fig.add_trace(go.Bar(
+            x=_n_actual["uploadday"], y=_n_actual["n"],
+            name="매물수",
+            marker_color="rgba(148,163,184,0.3)",
+            hovertemplate="%{x|%m/%d}<br>매물 %{y}건<extra></extra>",
+        ), secondary_y=True)
 
     fig.update_layout(
         title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
-        height=270,
-        margin=dict(l=42, r=8, t=30, b=55),
+        height=280,
+        margin=dict(l=42, r=32, t=30, b=55),
         plot_bgcolor="white",
         legend=dict(orientation="h", y=-0.25, x=0, font=dict(size=10)),
         hovermode="x unified",
@@ -205,6 +230,14 @@ for cname in sel:
             showgrid=True, gridcolor="#f1f5f9",
             dtick=Y_TICK, tickformat=".1f",
             range=[Y_MIN, Y_MAX],
+            fixedrange=True,
+        ),
+        yaxis2=dict(
+            showgrid=False,
+            showticklabels=True,
+            tickfont=dict(size=7, color="#94a3b8"),
+            ticksuffix="건",
+            range=[0, _n_max * 6],
             fixedrange=True,
         ),
     )
