@@ -38,61 +38,39 @@ st.markdown(SHARED_CSS, unsafe_allow_html=True)
 # ── 모바일 반응형 CSS ─────────────────────────
 st.markdown("""
 <style>
-@media screen and (max-width: 768px) {
+/* ── 컨트롤 영역 공통 컴팩트 ── */
+[data-testid="stNumberInput"] label { font-size: 11px !important; margin-bottom: 1px !important; }
+[data-testid="stNumberInput"] input { height: 32px !important; font-size: 13px !important; padding: 2px 6px !important; }
+[data-testid="stNumberInput"] button { height: 32px !important; width: 24px !important; min-width: 0 !important; }
+[data-testid="stButton"] button {
+    height: 32px !important;
+    min-height: 0 !important;
+    padding: 0 4px !important;
+    font-size: 12px !important;
+    line-height: 1 !important;
+}
 
+@media screen and (max-width: 768px) {
     /* ── 차트 컬럼: 1열 전환 ── */
     [data-testid="column"]:has([data-testid="stPlotlyChart"]) {
         width: 100% !important;
         flex: 0 0 100% !important;
         min-width: 100% !important;
     }
-
     /* ── 가격 현황 카드: 1열 전환 ── */
     [data-testid="column"]:has(div[style*="border-radius:10px"]) {
         width: 100% !important;
         flex: 0 0 100% !important;
         min-width: 100% !important;
     }
-
-    /* ── Y축 입력 행: 가로 유지 + 크기 축소 ── */
+    /* ── 컨트롤 행: 가로 유지 + 간격 축소 ── */
     section.main [data-testid="stHorizontalBlock"]:has([data-testid="stNumberInput"]) {
         flex-wrap: nowrap !important;
-        gap: 6px !important;
+        gap: 4px !important;
     }
     section.main [data-testid="stHorizontalBlock"]:has([data-testid="stNumberInput"]) > div[data-testid="column"] {
         flex: 1 1 0% !important;
         min-width: 0 !important;
-        width: auto !important;
-    }
-    [data-testid="stNumberInput"] label { font-size: 11px !important; }
-    [data-testid="stNumberInput"] input {
-        font-size: 13px !important;
-        height: 36px !important;
-        padding: 2px 8px !important;
-    }
-    [data-testid="stNumberInput"] button {
-        height: 36px !important;
-        width: 28px !important;
-        min-width: 0 !important;
-    }
-
-    /* ── 기간 버튼 행: 가로 유지 + 높이/폰트 축소 ── */
-    section.main [data-testid="stHorizontalBlock"]:has([data-testid="stButton"]) {
-        flex-wrap: nowrap !important;
-        gap: 4px !important;
-    }
-    section.main [data-testid="stHorizontalBlock"]:has([data-testid="stButton"]) > div[data-testid="column"] {
-        flex: 1 1 0% !important;
-        min-width: 0 !important;
-    }
-    [data-testid="stButton"] button {
-        height: 34px !important;
-        min-height: 0 !important;
-        padding: 0 4px !important;
-    }
-    [data-testid="stButton"] button p {
-        font-size: 11px !important;
-        line-height: 1 !important;
     }
 }
 </style>
@@ -167,18 +145,15 @@ if "x_range_label" not in st.session_state:
 def _set_x_range(label):
     st.session_state.x_range_label = label
 
-# ── Y축 범위 (2열 입력, 트레일링 공백 제거) ──
-_y_cols = st.columns(2)
-_new_y_min = _y_cols[0].number_input("Y 최솟값 (억)", value=float(st.session_state.y_min), step=0.1, format="%.1f", min_value=0.0)
-_new_y_max = _y_cols[1].number_input("Y 최댓값 (억)", value=float(st.session_state.y_max), step=0.1, format="%.1f", min_value=0.1)
+# ── Y축 범위 + 기간 선택 (한 행) ──────────────
+_ctrl_cols = st.columns([1.6, 1.6, 0.5] + [1] * len(X_RANGE_OPTIONS))
+_new_y_min = _ctrl_cols[0].number_input("Y 최솟값 (억)", value=float(st.session_state.y_min), step=0.1, format="%.1f", min_value=0.0)
+_new_y_max = _ctrl_cols[1].number_input("Y 최댓값 (억)", value=float(st.session_state.y_max), step=0.1, format="%.1f", min_value=0.1)
 st.session_state.y_min = _new_y_min
 st.session_state.y_max = _new_y_max
-
-# ── 기간 선택 버튼 (트레일링 공백 제거) ──────
-_xr_cols = st.columns([0.5] + [1] * len(X_RANGE_OPTIONS))
-_xr_cols[0].markdown("<div style='font-size:10px;color:#64748b;padding-top:8px;'>기간</div>", unsafe_allow_html=True)
+_ctrl_cols[2].markdown("<div style='font-size:10px;color:#64748b;padding-top:22px;'>기간</div>", unsafe_allow_html=True)
 for _xi, _label in enumerate(X_RANGE_OPTIONS):
-    _xr_cols[_xi + 1].button(
+    _ctrl_cols[3 + _xi].button(
         _label, key=f"xr_{_label}",
         type="primary" if st.session_state.x_range_label == _label else "secondary",
         use_container_width=True,
