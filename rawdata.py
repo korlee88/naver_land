@@ -121,7 +121,7 @@ if do_parse:
     rows = [parse_block(b) for b in blocks]
     df   = pd.DataFrame(rows)
     df["uid"]      = df.apply(
-        lambda r: make_uid(r["단지명"], r["동"], r["면적"], r["거래유형"], r["층"]), axis=1
+        lambda r: make_uid(r["단지명"], r["동"], r["면적"], r["거래유형"], r["향"]), axis=1
     )
     df["batch_id"] = batch_id
     st.session_state["df_parsed"] = df
