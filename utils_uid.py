@@ -1,8 +1,11 @@
 import hashlib
 import re
 
-def _norm(s: str) -> str:
-    s = (s or "").strip().lower()
+def _norm(s) -> str:
+    # pandas NaN(float)·None 모두 빈 문자열로 정규화
+    if s is None or (isinstance(s, float) and s != s):
+        s = ""
+    s = str(s).strip().lower()
     s = re.sub(r"\s+", "", s)          # 공백 제거
     s = s.replace("㎡", "m²")          # 혹시 단위 흔들리면 통일
     return s
