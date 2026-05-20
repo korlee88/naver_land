@@ -37,14 +37,15 @@ REQUIRED    = ["단지명", "동", "거래유형", "가격", "확인매물"]
 
 # ── 파싱 함수 ─────────────────────────────────────────────────────────────
 def split_blocks(text: str) -> list[str]:
-    """'확인매물' 줄 기준으로 블록 분리"""
+    """'확인매물 YY.MM.DD' 날짜 줄 기준으로 블록 분리.
+    날짜 없는 '확인매물.' 줄은 블록 끝으로 보지 않아 한 매물이 쪼개지는 것을 방지."""
     blocks, buf = [], []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
         buf.append(line)
-        if line.startswith("확인매물"):
+        if line.startswith("확인매물") and _RE_CONFIRM.search(line):
             blocks.append("\n".join(buf))
             buf = []
     if buf:
