@@ -18,7 +18,6 @@ from utils_graph import build_df, make_weekly, DROP_TH, SHARED_CSS
 PRIORITY_COMPLEX = "평택센트럴자이 2단지"
 MY_BUY_PRICE     = 3.20
 COLS_PER_ROW     = 2
-_DAY_MS          = 86_400_000
 
 X_OPTIONS = {
     "1주": 7, "2주": 14, "3주": 21, "4주": 28,
@@ -26,16 +25,14 @@ X_OPTIONS = {
 }
 DEFAULT_PERIOD = "2달"
 
-# 층 구분 그룹: 이름 → (min, max) / None = 제한 없음
 FLOOR_GROUPS = {
-    "전체":        (None, None),
-    "저층(≤5)":    (None, 5),
-    "중층(6-10)":  (6, 10),
+    "저층(≤5)":      (None, 5),
+    "중층(6-10)":    (6, 10),
     "중상층(11-15)": (11, 15),
-    "고층(≥16)":   (16, None),
+    "고층(≥16)":     (16, None),
 }
-FLOOR_KEYS = list(FLOOR_GROUPS.keys())
-DEFAULT_FLOOR = "중상층(11-15)"
+FLOOR_KEYS     = list(FLOOR_GROUPS.keys())
+DEFAULT_FLOORS = ["중상층(11-15)"]
 
 
 def _parse_floor(val) -> int | None:
@@ -72,18 +69,57 @@ def _week_label(dt) -> str:
         return str(dt)[:5]
 
 
+def _init_ms(key: str, default: list, valid: list):
+    """multiselect 세션 상태 초기화 + 유효성 정리 (구버전 문자열 마이그레이션 포함)"""
+    if key not in st.session_state:
+        st.session_state[key] = [v for v in default if v in valid]
+        return
+    existing = st.session_state[key]
+    if isinstance(existing, list):
+        st.session_state[key] = [v for v in existing if v in valid]
+    else:
+        v = str(existing)
+        st.session_state[key] = [v] if v in valid else [v2 for v2 in default if v2 in valid]
+
+
 inject_korean_font()
 require_auth()
 
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 st.markdown("""
 <style>
+/* 버튼 컴팩트 */
 [data-testid="stButton"] button {
     height: 28px !important; min-height: 0 !important;
     padding: 0 5px !important; font-size: 11px !important;
 }
-[data-testid="stRadio"] > div { gap: 4px !important; }
-[data-testid="stRadio"] label { font-size: 11px !important; padding: 2px 6px !important; }
+/* 멀티셀렉트 레이블 */
+[data-testid="stMultiSelect"] label {
+    font-size: 11px !important;
+    color: #475569 !important;
+    margin-bottom: 1px !important;
+    font-weight: 600 !important;
+}
+/* 선택된 태그(pill) 크기 축소 */
+[data-baseweb="tag"] {
+    font-size: 10px !important;
+    padding: 1px 5px !important;
+    height: 20px !important;
+    line-height: 18px !important;
+    border-radius: 4px !important;
+}
+[data-baseweb="tag"] span { font-size: 10px !important; }
+/* 멀티셀렉트 입력창 높이 */
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+    min-height: 30px !important;
+    padding: 2px 6px !important;
+    font-size: 11px !important;
+}
+/* 필터 컨테이너 내부 여백 */
+[data-testid="stVerticalBlockBorderWrapper"] > div > div {
+    padding: 8px 10px !important;
+    gap: 4px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,7 +128,6 @@ df_all = build_df()
 if df_all.empty:
     st.error("데이터 없음"); st.stop()
 
-# ── 사이드바: 단지 선택만 ──────────────────────────
 _raw_list     = sorted(df_all["complex_name"].unique().tolist())
 _complex_list = (
     [PRIORITY_COMPLEX] + [c for c in _raw_list if c != PRIORITY_COMPLEX]
@@ -119,11 +154,10 @@ df = df_all[df_all["complex_name"].isin(sel)].copy()
 if df.empty:
     st.warning("조건에 맞는 데이터가 없습니다."); st.stop()
 
-# floor 컬럼 숫자화 (전체 df에서 한 번만)
 if "floor" in df.columns:
     df["_floor_n"] = df["floor"].apply(_parse_floor)
 
-# ── 헤더 + 기간 드롭다운 ────────────────────────────
+# ── 헤더 + 기간 드롭다운 ─────────────────────────
 _hcol, _pcol, _ = st.columns([4, 2, 4])
 _hcol.markdown("#### 📊 가격 추이 차트")
 _period_label = _pcol.selectbox(
@@ -152,228 +186,223 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
     chart_cols = st.columns(len(row_items), gap="small")
 
     for col_idx, cname in enumerate(row_items):
-        dfc = df[df["complex_name"] == cname].copy()
-        if dfc.empty:
-            chart_cols[col_idx].caption(f"{cname} — 데이터 없음")
-            continue
-
-        # ── 단지별 필터 UI ──────────────────────────
         with chart_cols[col_idx]:
+            dfc = df[df["complex_name"] == cname].copy()
+            if dfc.empty:
+                st.caption(f"{cname} — 데이터 없음")
+                continue
 
-            # 평형 옵션 (단지 내 unique area)
-            _area_raw   = dfc["area"].dropna().unique().tolist() if "area" in dfc.columns else []
-            _area_labels = ["전체"] + sorted({_area_label(a) for a in _area_raw if _area_label(a) != "?"})
-            _fk_area    = f"fa_{cname}"
-            if _fk_area not in st.session_state or st.session_state[_fk_area] not in _area_labels:
-                st.session_state[_fk_area] = "전체"
+            # ── 필터 옵션 준비 ───────────────────────
+            _area_raw  = dfc["area"].dropna().unique().tolist() if "area" in dfc.columns else []
+            _area_opts = sorted({_area_label(a) for a in _area_raw if _area_label(a) != "?"})
+            _dong_opts = sorted(dfc["dong"].dropna().unique().tolist()) if "dong" in dfc.columns else []
 
-            # 동 옵션
-            _dong_opts  = ["전체"] + sorted(dfc["dong"].dropna().unique().tolist()) if "dong" in dfc.columns else ["전체"]
-            _fk_dong    = f"fd_{cname}"
-            if _fk_dong not in st.session_state or st.session_state[_fk_dong] not in _dong_opts:
-                st.session_state[_fk_dong] = "전체"
+            _fk_floor = f"ff_{cname}"
+            _fk_area  = f"fa_{cname}"
+            _fk_dong  = f"fd_{cname}"
 
-            # 층 옵션
-            _fk_floor   = f"ff_{cname}"
-            if _fk_floor not in st.session_state:
-                st.session_state[_fk_floor] = DEFAULT_FLOOR
+            _init_ms(_fk_floor, DEFAULT_FLOORS, FLOOR_KEYS)
+            _init_ms(_fk_area,  [],             _area_opts)
+            _init_ms(_fk_dong,  [],             _dong_opts)
 
-            # 필터 행 표시
-            _f1, _f2, _f3 = st.columns([1.2, 1.5, 2.3])
-            _f1.caption("**층**")
-            _f2.caption("**평형**")
-            _f3.caption("**동**")
+            # ── 필터 UI (테두리 컨테이너) ────────────
+            with st.container(border=True):
+                _fc1, _fc2, _fc3 = st.columns([1.1, 1.2, 1.7])
+                with _fc1:
+                    st.multiselect(
+                        "층", FLOOR_KEYS,
+                        key=_fk_floor,
+                        placeholder="전체",
+                    )
+                with _fc2:
+                    st.multiselect(
+                        "평형", _area_opts,
+                        key=_fk_area,
+                        placeholder="전체",
+                    )
+                with _fc3:
+                    st.multiselect(
+                        "동", _dong_opts,
+                        key=_fk_dong,
+                        placeholder="전체",
+                    )
 
-            st.session_state[_fk_floor] = _f1.radio(
-                "층 선택", FLOOR_KEYS,
-                index=FLOOR_KEYS.index(st.session_state[_fk_floor]),
-                key=f"r_floor_{cname}", label_visibility="collapsed",
-            )
-            st.session_state[_fk_area] = _f2.radio(
-                "평형 선택", _area_labels,
-                index=_area_labels.index(st.session_state[_fk_area]),
-                key=f"r_area_{cname}", label_visibility="collapsed",
-            )
-            st.session_state[_fk_dong] = _f3.radio(
-                "동 선택", _dong_opts,
-                index=_dong_opts.index(st.session_state[_fk_dong]),
-                key=f"r_dong_{cname}", label_visibility="collapsed",
-            )
+            # ── 필터 적용 ────────────────────────────
+            _sel_floors = st.session_state[_fk_floor]   # [] → 전체
+            _sel_areas  = st.session_state[_fk_area]
+            _sel_dongs  = st.session_state[_fk_dong]
 
-        # ── 필터 적용 ────────────────────────────────
-        _sel_floor = st.session_state[_fk_floor]
-        _sel_area  = st.session_state[_fk_area]
-        _sel_dong  = st.session_state[_fk_dong]
+            plot_df = dfc.copy()
 
-        plot_df = dfc.copy()
+            # 동 (OR)
+            if _sel_dongs and "dong" in plot_df.columns:
+                _tmp = plot_df[plot_df["dong"].isin(_sel_dongs)]
+                if not _tmp.empty: plot_df = _tmp
 
-        # 동 필터
-        if _sel_dong != "전체" and "dong" in plot_df.columns:
-            _tmp = plot_df[plot_df["dong"] == _sel_dong]
-            if not _tmp.empty:
-                plot_df = _tmp
+            # 평형 (OR)
+            if _sel_areas and "area" in plot_df.columns:
+                _tmp = plot_df[plot_df["area"].apply(_area_label).isin(_sel_areas)]
+                if not _tmp.empty: plot_df = _tmp
 
-        # 평형 필터
-        if _sel_area != "전체" and "area" in plot_df.columns:
-            _tmp = plot_df[plot_df["area"].apply(_area_label) == _sel_area]
-            if not _tmp.empty:
-                plot_df = _tmp
+            # 층 (OR across groups)
+            if _sel_floors and "floor" in plot_df.columns:
+                plot_df["_floor_n"] = plot_df["floor"].apply(_parse_floor)
+                _fmask = pd.Series(False, index=plot_df.index)
+                for _fl_key in _sel_floors:
+                    _flo, _fhi = FLOOR_GROUPS[_fl_key]
+                    if _flo is not None and _fhi is not None:
+                        _fmask |= ((plot_df["_floor_n"] >= _flo) & (plot_df["_floor_n"] <= _fhi))
+                    elif _flo is not None:
+                        _fmask |= (plot_df["_floor_n"] >= _flo)
+                    elif _fhi is not None:
+                        _fmask |= (plot_df["_floor_n"] <= _fhi)
+                _tmp = plot_df[_fmask]
+                if not _tmp.empty: plot_df = _tmp
 
-        # 층 필터
-        _flo, _fhi = FLOOR_GROUPS[_sel_floor]
-        if "floor" in plot_df.columns and (_flo is not None or _fhi is not None):
-            plot_df["_floor_n"] = plot_df["floor"].apply(_parse_floor)
-            if _flo is not None and _fhi is not None:
-                _tmp = plot_df[(plot_df["_floor_n"] >= _flo) & (plot_df["_floor_n"] <= _fhi)]
-            elif _flo is not None:
-                _tmp = plot_df[plot_df["_floor_n"] >= _flo]
-            else:
-                _tmp = plot_df[plot_df["_floor_n"] <= _fhi]
-            if not _tmp.empty:
-                plot_df = _tmp
+            _floor_str = "/".join(_sel_floors) if _sel_floors else "전체"
+            _area_str  = "/".join(_sel_areas)  if _sel_areas  else "전체"
+            _dong_str  = "/".join(_sel_dongs)  if _sel_dongs  else "전체"
+            floor_note = f"층:{_floor_str}  ·  평형:{_area_str}  ·  동:{_dong_str}  ·  {len(plot_df)}건"
 
-        floor_note = f"층:{_sel_floor} | 평형:{_sel_area} | 동:{_sel_dong} | {len(plot_df)}건"
+            # 주차 집계
+            d2   = make_weekly(plot_df, DROP_TH)
+            x    = d2["uploadday"]
+            mask = x.notna() & d2["min_eok"].notna()
+            if not mask.any():
+                st.caption(f"{cname} — 표시할 데이터 없음")
+                continue
 
-        # 주차 집계
-        d2   = make_weekly(plot_df, DROP_TH)
-        x    = d2["uploadday"]
-        mask = x.notna() & d2["min_eok"].notna()
-        if not mask.any():
-            chart_cols[col_idx].caption(f"{cname} — 표시할 데이터 없음")
-            continue
+            # ── Y축 개별 범위 계산 ──────────────────
+            _vals  = pd.concat([d2["min_eok"], d2["max_eok"]]).dropna()
+            _v_min = float(_vals.min())
+            _v_max = float(_vals.max())
+            _span  = max(_v_max - _v_min, 0.2)
+            _pad   = max(0.1, round(_span * 0.15, 2))
+            _y_min = round(math.floor(_v_min * 10) / 10 - _pad, 2)
+            _y_max = round(math.ceil(_v_max * 10) / 10 + _pad, 2)
+            _dtick = _auto_dtick(_y_max - _y_min)
 
-        # ── Y축 개별 범위 계산 ──────────────────────
-        _vals  = pd.concat([d2["min_eok"], d2["max_eok"]]).dropna()
-        _v_min = float(_vals.min())
-        _v_max = float(_vals.max())
-        _span  = max(_v_max - _v_min, 0.2)
-        _pad   = max(0.1, round(_span * 0.15, 2))
-        _y_min = round(math.floor(_v_min * 10) / 10 - _pad, 2)
-        _y_max = round(math.ceil(_v_max * 10) / 10 + _pad, 2)
-        _dtick = _auto_dtick(_y_max - _y_min)
+            # ── X축 주차 레이블 ─────────────────────
+            _tickvals = x[mask].tolist()
+            _ticktext = [_week_label(dt) for dt in _tickvals]
 
-        # ── X축 주차 레이블 ─────────────────────────
-        _tickvals = x[mask].tolist()
-        _ticktext = [_week_label(dt) for dt in _tickvals]
+            C_MIN  = "#2563eb"
+            C_AVG  = "#94a3b8"
+            C_MAX  = "#fca5a5"
+            _hover = "%{x|%Y-%m-%d}<br><b>%{y:.2f}억</b><extra></extra>"
 
-        C_MIN = "#2563eb"
-        C_AVG = "#94a3b8"
-        C_MAX = "#fca5a5"
-        _hover = "%{x|%Y-%m-%d}<br><b>%{y:.2f}억</b><extra></extra>"
+            _n_actual = d2[d2["n"] > 0]
+            _n_max    = int(_n_actual["n"].max()) if not _n_actual.empty else 5
 
-        _n_actual = d2[d2["n"] > 0]
-        _n_max    = int(_n_actual["n"].max()) if not _n_actual.empty else 5
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-        fig.add_trace(go.Scatter(
-            x=x[mask], y=d2["max_eok"][mask], name="최고",
-            mode="lines+markers",
-            line=dict(color=C_MAX, width=1.2),
-            marker=dict(color=C_MAX, size=4),
-            hovertemplate=_hover,
-        ), secondary_y=False)
-        fig.add_trace(go.Scatter(
-            x=x[mask], y=d2["min_eok"][mask],
-            mode="none", name="가격범위",
-            fill="tonexty", fillcolor="rgba(37,99,235,0.06)",
-            showlegend=False, hoverinfo="skip",
-        ), secondary_y=False)
-
-        avg_mask = mask & d2["avg_eok"].notna()
-        if avg_mask.any():
             fig.add_trace(go.Scatter(
-                x=x[avg_mask], y=d2["avg_eok"][avg_mask], name="평균",
-                mode="lines",
-                line=dict(color=C_AVG, width=1.5, dash="dot"),
+                x=x[mask], y=d2["max_eok"][mask], name="최고",
+                mode="lines+markers",
+                line=dict(color=C_MAX, width=1.2),
+                marker=dict(color=C_MAX, size=4),
+                hovertemplate=_hover,
+            ), secondary_y=False)
+            fig.add_trace(go.Scatter(
+                x=x[mask], y=d2["min_eok"][mask],
+                mode="none", name="가격범위",
+                fill="tonexty", fillcolor="rgba(37,99,235,0.06)",
+                showlegend=False, hoverinfo="skip",
+            ), secondary_y=False)
+
+            avg_mask = mask & d2["avg_eok"].notna()
+            if avg_mask.any():
+                fig.add_trace(go.Scatter(
+                    x=x[avg_mask], y=d2["avg_eok"][avg_mask], name="평균",
+                    mode="lines",
+                    line=dict(color=C_AVG, width=1.5, dash="dot"),
+                    hovertemplate=_hover,
+                ), secondary_y=False)
+
+            _trend_mask = d2["min_7avg"].notna()
+            if _trend_mask.any():
+                fig.add_trace(go.Scatter(
+                    x=d2["uploadday"][_trend_mask], y=d2["min_7avg"][_trend_mask],
+                    name="추세(7주)",
+                    mode="lines",
+                    line=dict(color="#a78bfa", width=1.5, dash="dash"),
+                    hovertemplate="%{x|%Y-%m-%d}<br>추세 %{y:.2f}억<extra></extra>",
+                ), secondary_y=False)
+
+            fig.add_trace(go.Scatter(
+                x=x[mask], y=d2["min_eok"][mask], name="최저",
+                mode="lines+markers",
+                line=dict(color=C_MIN, width=2.5),
+                marker=dict(color=C_MIN, size=6, line=dict(color="white", width=1.5)),
                 hovertemplate=_hover,
             ), secondary_y=False)
 
-        _trend_mask = d2["min_7avg"].notna()
-        if _trend_mask.any():
-            fig.add_trace(go.Scatter(
-                x=d2["uploadday"][_trend_mask], y=d2["min_7avg"][_trend_mask],
-                name="추세(7주)",
-                mode="lines",
-                line=dict(color="#a78bfa", width=1.5, dash="dash"),
-                hovertemplate="%{x|%Y-%m-%d}<br>추세 %{y:.2f}억<extra></extra>",
-            ), secondary_y=False)
+            drops = d2[d2["is_drop"]]
+            if not drops.empty:
+                fig.add_trace(go.Scatter(
+                    x=drops["uploadday"], y=drops["min_eok"],
+                    mode="markers", name="▼급락",
+                    marker=dict(symbol="triangle-down", size=9, color="#ef4444"),
+                    hovertemplate="%{x|%Y-%m-%d}<br>▼ 급락 %{y:.2f}억<extra></extra>",
+                ), secondary_y=False)
 
-        fig.add_trace(go.Scatter(
-            x=x[mask], y=d2["min_eok"][mask], name="최저",
-            mode="lines+markers",
-            line=dict(color=C_MIN, width=2.5),
-            marker=dict(color=C_MIN, size=6, line=dict(color="white", width=1.5)),
-            hovertemplate=_hover,
-        ), secondary_y=False)
+            if not _n_actual.empty:
+                fig.add_trace(go.Bar(
+                    x=_n_actual["uploadday"], y=_n_actual["n"],
+                    name="매물수",
+                    marker_color="rgba(148,163,184,0.3)",
+                    hovertemplate="%{x|%m/%d}<br>매물 %{y}건<extra></extra>",
+                ), secondary_y=True)
 
-        drops = d2[d2["is_drop"]]
-        if not drops.empty:
-            fig.add_trace(go.Scatter(
-                x=drops["uploadday"], y=drops["min_eok"],
-                mode="markers", name="▼급락",
-                marker=dict(symbol="triangle-down", size=9, color="#ef4444"),
-                hovertemplate="%{x|%Y-%m-%d}<br>▼ 급락 %{y:.2f}억<extra></extra>",
-            ), secondary_y=False)
-
-        if not _n_actual.empty:
-            fig.add_trace(go.Bar(
-                x=_n_actual["uploadday"], y=_n_actual["n"],
-                name="매물수",
-                marker_color="rgba(148,163,184,0.3)",
-                hovertemplate="%{x|%m/%d}<br>매물 %{y}건<extra></extra>",
-            ), secondary_y=True)
-
-        # KPI (실거주 단지)
-        if cname == PRIORITY_COMPLEX:
-            _valid = d2["min_eok"].dropna()
-            if len(_valid) >= 2:
-                _cur   = float(_valid.iloc[-1])
-                _prev  = float(_valid.iloc[-2])
-                _delta = _cur - _prev
-                _pct   = _delta / _prev * 100 if _prev else 0
-                with chart_cols[col_idx]:
+            # KPI (실거주 단지)
+            if cname == PRIORITY_COMPLEX:
+                _valid_kpi = d2["min_eok"].dropna()
+                if len(_valid_kpi) >= 2:
+                    _cur   = float(_valid_kpi.iloc[-1])
+                    _prev  = float(_valid_kpi.iloc[-2])
+                    _delta = _cur - _prev
+                    _pct   = _delta / _prev * 100 if _prev else 0
                     _km1, _km2, _km3 = st.columns(3)
                     _km1.metric("현재 최저가", f"{_cur:.2f}억", f"{_delta:+.2f}억")
                     _km2.metric("전주 대비", f"{_pct:+.1f}%")
                     _km3.metric("매수가 대비", "3.20억", f"{_cur - MY_BUY_PRICE:+.2f}억")
 
-        fig.update_layout(
-            title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
-            height=360,
-            margin=dict(l=50, r=40, t=36, b=60),
-            plot_bgcolor="white",
-            legend=dict(orientation="h", y=-0.20, x=0, font=dict(size=10)),
-            hovermode="x unified",
-            xaxis=dict(
-                tickvals=_tickvals,
-                ticktext=_ticktext,
-                tickfont=dict(size=10), tickangle=0,
-                range=[X_MIN, X_MAX] if X_MIN is not None else None,
-                gridcolor="#f1f5f9", showgrid=True,
-                fixedrange=True,
-            ),
-            yaxis=dict(
-                title=dict(text="억", font=dict(size=10)),
-                tickfont=dict(size=10),
-                showgrid=True, gridcolor="#f1f5f9",
-                dtick=_dtick, tickformat=".2f",
-                range=[_y_min, _y_max],
-                fixedrange=True,
-            ),
-            yaxis2=dict(
-                showgrid=False, showticklabels=True,
-                tickfont=dict(size=8, color="#94a3b8"),
-                ticksuffix="건",
-                range=[0, _n_max * 6],
-                fixedrange=True,
-            ),
-        )
-        chart_cols[col_idx].plotly_chart(
-            fig, use_container_width=True,
-            config={"staticPlot": False, "displayModeBar": False, "scrollZoom": False},
-        )
-        chart_cols[col_idx].caption(floor_note)
+            fig.update_layout(
+                title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
+                height=360,
+                margin=dict(l=50, r=40, t=36, b=60),
+                plot_bgcolor="white",
+                legend=dict(orientation="h", y=-0.20, x=0, font=dict(size=10)),
+                hovermode="x unified",
+                xaxis=dict(
+                    tickvals=_tickvals,
+                    ticktext=_ticktext,
+                    tickfont=dict(size=10), tickangle=0,
+                    range=[X_MIN, X_MAX] if X_MIN is not None else None,
+                    gridcolor="#f1f5f9", showgrid=True,
+                    fixedrange=True,
+                ),
+                yaxis=dict(
+                    title=dict(text="억", font=dict(size=10)),
+                    tickfont=dict(size=10),
+                    showgrid=True, gridcolor="#f1f5f9",
+                    dtick=_dtick, tickformat=".2f",
+                    range=[_y_min, _y_max],
+                    fixedrange=True,
+                ),
+                yaxis2=dict(
+                    showgrid=False, showticklabels=True,
+                    tickfont=dict(size=8, color="#94a3b8"),
+                    ticksuffix="건",
+                    range=[0, _n_max * 6],
+                    fixedrange=True,
+                ),
+            )
+            st.plotly_chart(
+                fig, use_container_width=True,
+                config={"staticPlot": False, "displayModeBar": False, "scrollZoom": False},
+            )
+            st.caption(floor_note)
 
 
 # ══════════════════════════════════════════════
@@ -394,26 +423,28 @@ for cname in sel:
     if dfc.empty:
         continue
 
-    # 필터 상태 반영
-    _sel_floor = st.session_state.get(f"ff_{cname}", DEFAULT_FLOOR)
-    _sel_area  = st.session_state.get(f"fa_{cname}", "전체")
-    _sel_dong  = st.session_state.get(f"fd_{cname}", "전체")
+    _sel_floors = st.session_state.get(f"ff_{cname}", DEFAULT_FLOORS)
+    _sel_areas  = st.session_state.get(f"fa_{cname}", [])
+    _sel_dongs  = st.session_state.get(f"fd_{cname}", [])
 
-    if _sel_dong != "전체" and "dong" in dfc.columns:
-        _t = dfc[dfc["dong"] == _sel_dong]
+    if _sel_dongs and "dong" in dfc.columns:
+        _t = dfc[dfc["dong"].isin(_sel_dongs)]
         if not _t.empty: dfc = _t
-    if _sel_area != "전체" and "area" in dfc.columns:
-        _t = dfc[dfc["area"].apply(_area_label) == _sel_area]
+    if _sel_areas and "area" in dfc.columns:
+        _t = dfc[dfc["area"].apply(_area_label).isin(_sel_areas)]
         if not _t.empty: dfc = _t
-    _flo, _fhi = FLOOR_GROUPS[_sel_floor]
-    if "floor" in dfc.columns and (_flo is not None or _fhi is not None):
+    if _sel_floors and "floor" in dfc.columns:
         dfc["_floor_n"] = dfc["floor"].apply(_parse_floor)
-        if _flo and _fhi:
-            _t = dfc[(dfc["_floor_n"] >= _flo) & (dfc["_floor_n"] <= _fhi)]
-        elif _flo:
-            _t = dfc[dfc["_floor_n"] >= _flo]
-        else:
-            _t = dfc[dfc["_floor_n"] <= _fhi]
+        _fmask = pd.Series(False, index=dfc.index)
+        for _fl_key in _sel_floors:
+            _flo, _fhi = FLOOR_GROUPS[_fl_key]
+            if _flo is not None and _fhi is not None:
+                _fmask |= ((dfc["_floor_n"] >= _flo) & (dfc["_floor_n"] <= _fhi))
+            elif _flo is not None:
+                _fmask |= (dfc["_floor_n"] >= _flo)
+            elif _fhi is not None:
+                _fmask |= (dfc["_floor_n"] <= _fhi)
+        _t = dfc[_fmask]
         if not _t.empty: dfc = _t
 
     recent = dfc[dfc["uploadday"] >= CUT_RECENT]
