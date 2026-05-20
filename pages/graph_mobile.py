@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 
 from utils_style import inject_korean_font
 from utils_auth  import require_auth
-from utils_graph import build_df, make_daily, render_sidebar, SHARED_CSS
+from utils_graph import build_df, make_daily, make_weekly, render_sidebar, SHARED_CSS
 
 MID_HIGH_FLOOR = 11
 
@@ -116,6 +116,13 @@ _selected = st.radio(
 )
 st.session_state.x_range_m = _selected
 
+# ── 집계 단위 ──────────────────────────────────
+if "view_mode_mobile" not in st.session_state:
+    st.session_state.view_mode_mobile = "일별"
+_view_mode_m = st.radio(
+    "집계", ["일별", "주차"], horizontal=True, key="view_mode_mobile",
+)
+
 Y_MIN = st.session_state.y_min_m
 Y_MAX = st.session_state.y_max_m
 _x_days = X_OPTS[st.session_state.x_range_m]
@@ -149,7 +156,10 @@ for cname in sel:
         dfc_mid = dfc
 
     plot_df = dfc if dfc_mid.empty else dfc_mid
-    d2   = make_daily(plot_df)
+    if _view_mode_m == "주차":
+        d2 = make_weekly(plot_df)
+    else:
+        d2 = make_daily(plot_df)
     x    = d2["uploadday"]
     mask = x.notna() & d2["min_eok"].notna()
 
@@ -210,6 +220,8 @@ for cname in sel:
             hovertemplate="%{x|%m/%d}<br>매물 %{y}건<extra></extra>",
         ), secondary_y=True)
 
+    _chart_dtick_m = (7 * _DAY_MS) if _view_mode_m == "주차" else X_DTICK
+
     fig.update_layout(
         title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
         height=280,
@@ -219,7 +231,7 @@ for cname in sel:
         hovermode="x unified",
         xaxis=dict(
             tickfont=dict(size=9), tickangle=45,
-            tickformat="%m/%d", dtick=X_DTICK,
+            tickformat="%m/%d", dtick=_chart_dtick_m,
             range=[X_MIN, X_MAX] if X_MIN is not None else None,
             gridcolor="#f1f5f9", showgrid=True,
             fixedrange=True,

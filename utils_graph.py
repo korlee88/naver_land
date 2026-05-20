@@ -179,6 +179,25 @@ def make_daily(dfc, drop_th=DROP_TH):
     return d2
 
 
+def make_weekly(dfc, drop_th=DROP_TH):
+    """주 단위(월요일 시작) 집계. make_daily과 동일 컬럼 반환"""
+    dfc = dfc.copy()
+    dfc["week_start"] = dfc["uploadday"] - pd.to_timedelta(
+        dfc["uploadday"].dt.dayofweek, unit="D"
+    )
+    g = dfc.groupby("week_start")["eok"]
+    d = pd.DataFrame({
+        "uploadday": list(g.min().index),
+        "min_eok":   g.min().values,
+        "max_eok":   g.max().values,
+        "avg_eok":   g.mean().values,
+        "n":         g.count().values,
+    }).sort_values("uploadday").reset_index(drop=True)
+    d["min_7avg"] = d["min_eok"].rolling(7, min_periods=3).mean().shift(1)
+    d["is_drop"]  = (d["min_eok"] - d["min_7avg"]) <= -drop_th
+    return d
+
+
 # ══════════════════════════════════════════════
 # 점수 계산
 # ══════════════════════════════════════════════
@@ -326,7 +345,12 @@ def render_sidebar(df_all, show_drop_th=False):
             st.cache_data.clear(); st.rerun()
         st.divider()
 
-        complex_list = sorted(df_all["complex_name"].unique().tolist())
+        _PRIORITY = "평택센트럴자이 2단지"
+        _raw_list = sorted(df_all["complex_name"].unique().tolist())
+        complex_list = (
+            [_PRIORITY] + [c for c in _raw_list if c != _PRIORITY]
+            if _PRIORITY in _raw_list else _raw_list
+        )
         sel = st.multiselect(
             "단지 선택 (최대 4개 권장)", complex_list,
             default=complex_list[:min(4, len(complex_list))],
