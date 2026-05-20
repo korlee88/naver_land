@@ -34,6 +34,9 @@ FLOOR_GROUPS = {
 FLOOR_KEYS     = list(FLOOR_GROUPS.keys())
 DEFAULT_FLOORS = ["중상층(11-15)"]
 
+TRADE_OPTS    = ["매매", "전세", "월세"]
+DIR_ORDER     = ["남향", "남동향", "남서향", "동향", "서향", "북향"]
+
 
 def _parse_floor(val) -> int | None:
     if not val or (isinstance(val, float) and val != val):
@@ -70,7 +73,7 @@ def _week_label(dt) -> str:
 
 
 def _init_ms(key: str, default: list, valid: list):
-    """multiselect 세션 상태 초기화 + 유효성 정리 (구버전 문자열 마이그레이션 포함)"""
+    """multiselect 세션 상태 초기화 + 유효성 정리"""
     if key not in st.session_state:
         st.session_state[key] = [v for v in default if v in valid]
         return
@@ -88,7 +91,6 @@ require_auth()
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 st.markdown("""
 <style>
-/* 버튼 컴팩트 */
 [data-testid="stButton"] button {
     height: 28px !important; min-height: 0 !important;
     padding: 0 5px !important; font-size: 11px !important;
@@ -100,7 +102,7 @@ st.markdown("""
     margin-bottom: 1px !important;
     font-weight: 600 !important;
 }
-/* 선택된 태그(pill) 크기 축소 */
+/* 선택된 태그(pill) */
 [data-baseweb="tag"] {
     font-size: 10px !important;
     padding: 1px 5px !important;
@@ -117,9 +119,14 @@ st.markdown("""
 }
 /* 필터 컨테이너 내부 여백 */
 [data-testid="stVerticalBlockBorderWrapper"] > div > div {
-    padding: 8px 10px !important;
+    padding: 8px 10px 6px 10px !important;
     gap: 4px !important;
 }
+/* selectbox 컴팩트 */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    min-height: 30px !important; font-size: 11px !important;
+}
+[data-testid="stSelectbox"] label { font-size: 11px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -157,10 +164,13 @@ if df.empty:
 if "floor" in df.columns:
     df["_floor_n"] = df["floor"].apply(_parse_floor)
 
-# ── 헤더 + 기간 드롭다운 ─────────────────────────
-_hcol, _pcol, _ = st.columns([4, 2, 4])
-_hcol.markdown("#### 📊 가격 추이 차트")
-_period_label = _pcol.selectbox(
+# ── 헤더 ──────────────────────────────────────
+st.markdown("#### 📊 가격 추이 차트")
+
+# ── 기간 선택 (섹션 타이틀과 나란히) ─────────────
+_sec_col, _period_col, _ = st.columns([3, 1, 6])
+_sec_col.markdown('<div class="sec" style="padding-top:6px;">📊 가격 추이 (주차 기준)</div>', unsafe_allow_html=True)
+_period_label = _period_col.selectbox(
     "기간",
     list(X_OPTIONS.keys()),
     index=list(X_OPTIONS.keys()).index(DEFAULT_PERIOD),
@@ -175,8 +185,6 @@ if _all_days:
     X_MIN = X_MAX - timedelta(days=_x_days)
 else:
     X_MIN, X_MAX = None, None
-
-st.markdown('<div class="sec">📊 가격 추이 (주차 기준)</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
 # 단지별 추이 차트
@@ -193,58 +201,68 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 continue
 
             # ── 필터 옵션 준비 ───────────────────────
-            _area_raw  = dfc["area"].dropna().unique().tolist() if "area" in dfc.columns else []
-            _area_opts = sorted({_area_label(a) for a in _area_raw if _area_label(a) != "?"})
-            _dong_opts = sorted(dfc["dong"].dropna().unique().tolist()) if "dong" in dfc.columns else []
+            _area_raw   = dfc["area"].dropna().unique().tolist() if "area" in dfc.columns else []
+            _area_opts  = sorted({_area_label(a) for a in _area_raw if _area_label(a) != "?"})
+            _dong_opts  = sorted(dfc["dong"].dropna().unique().tolist()) if "dong" in dfc.columns else []
+            _trade_opts = [t for t in TRADE_OPTS if t in dfc["trade_type"].unique()] if "trade_type" in dfc.columns else []
+            _dir_raw    = dfc["direction"].dropna().unique().tolist() if "direction" in dfc.columns else []
+            _dir_opts   = [d for d in DIR_ORDER if d in _dir_raw] + [d for d in _dir_raw if d not in DIR_ORDER]
 
             _fk_floor = f"ff_{cname}"
             _fk_area  = f"fa_{cname}"
             _fk_dong  = f"fd_{cname}"
+            _fk_trade = f"ft_{cname}"
+            _fk_dir   = f"fdir_{cname}"
 
             _init_ms(_fk_floor, DEFAULT_FLOORS, FLOOR_KEYS)
             _init_ms(_fk_area,  [],             _area_opts)
             _init_ms(_fk_dong,  [],             _dong_opts)
+            _init_ms(_fk_trade, [],             _trade_opts)
+            _init_ms(_fk_dir,   [],             _dir_opts)
 
-            # ── 필터 UI (테두리 컨테이너) ────────────
+            # ── 필터 UI ─────────────────────────────
             with st.container(border=True):
-                _fc1, _fc2, _fc3 = st.columns([1.1, 1.2, 1.7])
-                with _fc1:
-                    st.multiselect(
-                        "층", FLOOR_KEYS,
-                        key=_fk_floor,
-                        placeholder="전체",
-                    )
-                with _fc2:
-                    st.multiselect(
-                        "평형", _area_opts,
-                        key=_fk_area,
-                        placeholder="전체",
-                    )
-                with _fc3:
-                    st.multiselect(
-                        "동", _dong_opts,
-                        key=_fk_dong,
-                        placeholder="전체",
-                    )
+                # 1행: 층 / 평형 / 동
+                _r1c1, _r1c2, _r1c3 = st.columns([1.1, 1.2, 1.7])
+                with _r1c1:
+                    st.multiselect("층",  FLOOR_KEYS,  key=_fk_floor, placeholder="전체")
+                with _r1c2:
+                    st.multiselect("평형", _area_opts, key=_fk_area,  placeholder="전체")
+                with _r1c3:
+                    st.multiselect("동",  _dong_opts,  key=_fk_dong,  placeholder="전체")
+
+                # 2행: 거래유형 / 방향
+                _r2c1, _r2c2 = st.columns([1, 2])
+                with _r2c1:
+                    st.multiselect("거래유형", _trade_opts, key=_fk_trade, placeholder="전체")
+                with _r2c2:
+                    st.multiselect("방향", _dir_opts, key=_fk_dir, placeholder="전체")
 
             # ── 필터 적용 ────────────────────────────
-            _sel_floors = st.session_state[_fk_floor]   # [] → 전체
+            _sel_floors = st.session_state[_fk_floor]
             _sel_areas  = st.session_state[_fk_area]
             _sel_dongs  = st.session_state[_fk_dong]
+            _sel_trades = st.session_state[_fk_trade]
+            _sel_dirs   = st.session_state[_fk_dir]
 
             plot_df = dfc.copy()
 
-            # 동 (OR)
             if _sel_dongs and "dong" in plot_df.columns:
                 _tmp = plot_df[plot_df["dong"].isin(_sel_dongs)]
                 if not _tmp.empty: plot_df = _tmp
 
-            # 평형 (OR)
             if _sel_areas and "area" in plot_df.columns:
                 _tmp = plot_df[plot_df["area"].apply(_area_label).isin(_sel_areas)]
                 if not _tmp.empty: plot_df = _tmp
 
-            # 층 (OR across groups)
+            if _sel_trades and "trade_type" in plot_df.columns:
+                _tmp = plot_df[plot_df["trade_type"].isin(_sel_trades)]
+                if not _tmp.empty: plot_df = _tmp
+
+            if _sel_dirs and "direction" in plot_df.columns:
+                _tmp = plot_df[plot_df["direction"].isin(_sel_dirs)]
+                if not _tmp.empty: plot_df = _tmp
+
             if _sel_floors and "floor" in plot_df.columns:
                 plot_df["_floor_n"] = plot_df["floor"].apply(_parse_floor)
                 _fmask = pd.Series(False, index=plot_df.index)
@@ -259,10 +277,15 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 _tmp = plot_df[_fmask]
                 if not _tmp.empty: plot_df = _tmp
 
-            _floor_str = "/".join(_sel_floors) if _sel_floors else "전체"
-            _area_str  = "/".join(_sel_areas)  if _sel_areas  else "전체"
-            _dong_str  = "/".join(_sel_dongs)  if _sel_dongs  else "전체"
-            floor_note = f"층:{_floor_str}  ·  평형:{_area_str}  ·  동:{_dong_str}  ·  {len(plot_df)}건"
+            _f_str = "/".join(_sel_floors) if _sel_floors else "전체"
+            _a_str = "/".join(_sel_areas)  if _sel_areas  else "전체"
+            _d_str = "/".join(_sel_dongs)  if _sel_dongs  else "전체"
+            _t_str = "/".join(_sel_trades) if _sel_trades else "전체"
+            _r_str = "/".join(_sel_dirs)   if _sel_dirs   else "전체"
+            filter_note = (
+                f"층:{_f_str}  ·  평형:{_a_str}  ·  동:{_d_str}  ·  "
+                f"거래:{_t_str}  ·  방향:{_r_str}  ·  {len(plot_df)}건"
+            )
 
             # 주차 집계
             d2   = make_weekly(plot_df, DROP_TH)
@@ -272,7 +295,7 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 st.caption(f"{cname} — 표시할 데이터 없음")
                 continue
 
-            # ── Y축 개별 범위 계산 ──────────────────
+            # ── Y축 개별 범위 ──────────────────────
             _vals  = pd.concat([d2["min_eok"], d2["max_eok"]]).dropna()
             _v_min = float(_vals.min())
             _v_max = float(_vals.max())
@@ -282,7 +305,7 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             _y_max = round(math.ceil(_v_max * 10) / 10 + _pad, 2)
             _dtick = _auto_dtick(_y_max - _y_min)
 
-            # ── X축 주차 레이블 ─────────────────────
+            # ── X축 주차 레이블 ────────────────────
             _tickvals = x[mask].tolist()
             _ticktext = [_week_label(dt) for dt in _tickvals]
 
@@ -402,7 +425,7 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 fig, use_container_width=True,
                 config={"staticPlot": False, "displayModeBar": False, "scrollZoom": False},
             )
-            st.caption(floor_note)
+            st.caption(filter_note)
 
 
 # ══════════════════════════════════════════════
@@ -423,15 +446,23 @@ for cname in sel:
     if dfc.empty:
         continue
 
-    _sel_floors = st.session_state.get(f"ff_{cname}", DEFAULT_FLOORS)
-    _sel_areas  = st.session_state.get(f"fa_{cname}", [])
-    _sel_dongs  = st.session_state.get(f"fd_{cname}", [])
+    _sel_floors = st.session_state.get(f"ff_{cname}",   DEFAULT_FLOORS)
+    _sel_areas  = st.session_state.get(f"fa_{cname}",   [])
+    _sel_dongs  = st.session_state.get(f"fd_{cname}",   [])
+    _sel_trades = st.session_state.get(f"ft_{cname}",   [])
+    _sel_dirs   = st.session_state.get(f"fdir_{cname}", [])
 
     if _sel_dongs and "dong" in dfc.columns:
         _t = dfc[dfc["dong"].isin(_sel_dongs)]
         if not _t.empty: dfc = _t
     if _sel_areas and "area" in dfc.columns:
         _t = dfc[dfc["area"].apply(_area_label).isin(_sel_areas)]
+        if not _t.empty: dfc = _t
+    if _sel_trades and "trade_type" in dfc.columns:
+        _t = dfc[dfc["trade_type"].isin(_sel_trades)]
+        if not _t.empty: dfc = _t
+    if _sel_dirs and "direction" in dfc.columns:
+        _t = dfc[dfc["direction"].isin(_sel_dirs)]
         if not _t.empty: dfc = _t
     if _sel_floors and "floor" in dfc.columns:
         dfc["_floor_n"] = dfc["floor"].apply(_parse_floor)
