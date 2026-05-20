@@ -153,6 +153,15 @@ with st.sidebar:
         default=_default_sel,
         key="sidebar_sel_v2",
     )
+    st.divider()
+    st.markdown("**📅 트렌드 기간**")
+    _period_label = st.selectbox(
+        "기간",
+        list(X_OPTIONS.keys()),
+        index=list(X_OPTIONS.keys()).index(DEFAULT_PERIOD),
+        key="x_period_v2",
+        label_visibility="collapsed",
+    )
 
 if not sel:
     st.warning("왼쪽에서 단지를 선택해 주세요."); st.stop()
@@ -166,17 +175,8 @@ if "floor" in df.columns:
 
 # ── 헤더 ──────────────────────────────────────
 st.markdown("#### 📊 가격 추이 차트")
+st.markdown('<div class="sec">📊 가격 추이 (주차 기준)</div>', unsafe_allow_html=True)
 
-# ── 기간 선택 (섹션 타이틀과 나란히) ─────────────
-_sec_col, _period_col, _ = st.columns([3, 1, 6])
-_sec_col.markdown('<div class="sec" style="padding-top:6px;">📊 가격 추이 (주차 기준)</div>', unsafe_allow_html=True)
-_period_label = _period_col.selectbox(
-    "기간",
-    list(X_OPTIONS.keys()),
-    index=list(X_OPTIONS.keys()).index(DEFAULT_PERIOD),
-    key="x_period_v2",
-    label_visibility="collapsed",
-)
 _x_days = X_OPTIONS[_period_label]
 
 _all_days = df["uploadday"].dropna().tolist()
