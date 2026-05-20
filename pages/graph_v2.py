@@ -13,9 +13,12 @@ from utils_auth  import require_auth
 import re as _re
 
 from utils_graph import (
-    build_df, make_daily, render_sidebar,
+    build_df, make_daily, make_weekly, render_sidebar,
     PALETTE, SHARED_CSS,
 )
+
+PRIORITY_COMPLEX = "평택센트럴자이 2단지"
+MY_BUY_PRICE = 3.20
 
 # 중상층 기준: 11층 이상 (저층 1~5, 중층 6~10, 중상층 11층+)
 MID_HIGH_FLOOR = 11
@@ -130,6 +133,15 @@ X_RANGE_OPTIONS = {"1주": 7, "2주": 14, "3주": 21, "1달": 30, "2달": 60}
 if "x_range_label" not in st.session_state:
     st.session_state.x_range_label = "1달"
 
+# 집계 단위 (일별 / 주차)
+if "view_mode_v2" not in st.session_state:
+    st.session_state.view_mode_v2 = "일별"
+_vm_col, _ = st.columns([2, 8])
+_view_mode = _vm_col.radio(
+    "집계 단위", ["일별", "주차"], horizontal=True,
+    key="view_mode_v2", label_visibility="collapsed",
+)
+
 _xr_cols = st.columns([2] + [1] * len(X_RANGE_OPTIONS) + [2])
 _xr_cols[0].markdown(
     "<div style='font-size:10px;color:#64748b;text-align:right;padding-top:6px;'>기간</div>",
@@ -189,7 +201,10 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             f"🏢 중상층(11층 이상) {mid_n}건 / 전체 {total_n}건 기준 트렌드"
         )
 
-        d2   = make_daily(plot_df, drop_th)
+        if _view_mode == "주차":
+            d2 = make_weekly(plot_df, drop_th)
+        else:
+            d2 = make_daily(plot_df, drop_th)
         x    = d2["uploadday"]
         mask = x.notna() & d2["min_eok"].notna()
 
@@ -241,6 +256,23 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 hovertemplate="%{x|%Y-%m-%d}<br>▼ 급락 %{y:.2f}억<extra></extra>",
             ))
 
+        _chart_dtick = (7 * _DAY_MS) if _view_mode == "주차" else X_DTICK
+
+        # 실거주 단지 KPI
+        if cname == PRIORITY_COMPLEX:
+            _valid = d2["min_eok"].dropna()
+            if len(_valid) >= 2:
+                _cur   = float(_valid.iloc[-1])
+                _prev  = float(_valid.iloc[-2])
+                _delta = _cur - _prev
+                _pct   = _delta / _prev * 100 if _prev else 0
+                _period = "전주" if _view_mode == "주차" else "전기"
+                with chart_cols[col_idx]:
+                    _km1, _km2, _km3 = st.columns(3)
+                    _km1.metric("현재 최저가", f"{_cur:.2f}억", f"{_delta:+.2f}억")
+                    _km2.metric(f"{_period} 대비", f"{_pct:+.1f}%")
+                    _km3.metric("매수가 대비", "3.20억", f"{_cur - MY_BUY_PRICE:+.2f}억")
+
         fig.update_layout(
             title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
             height=340,
@@ -251,7 +283,7 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             xaxis=dict(
                 tickfont=dict(size=10), tickangle=45,
                 tickformat="%m/%d",
-                dtick=X_DTICK,
+                dtick=_chart_dtick,
                 range=[X_MIN, X_MAX] if X_MIN is not None else None,
                 gridcolor="#f1f5f9", showgrid=True,
             ),

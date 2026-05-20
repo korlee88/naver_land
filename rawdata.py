@@ -1,11 +1,12 @@
 # rawdata.py
+import os
 import re
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
-from db import init_db, upsert_listing_and_history
+from db import init_db, upsert_listing_and_history, push_to_sheet
 from utils_uid import make_uid
 from utils_style import inject_korean_font
 from utils_auth import require_auth
@@ -130,6 +131,26 @@ if do_parse:
 df = st.session_state.get("df_parsed")
 if df is None or df.empty:
     st.caption("매물 내용을 붙여넣고 '정리하기'를 눌러주세요.")
+    _ICS = (
+        "BEGIN:VCALENDAR\r\n"
+        "VERSION:2.0\r\n"
+        "PRODID:-//naver_land//KR\r\n"
+        "CALSCALE:GREGORIAN\r\n"
+        "BEGIN:VEVENT\r\n"
+        "DTSTART;TZID=Asia/Seoul:20260524T200000\r\n"
+        "RRULE:FREQ=WEEKLY;BYDAY=SU\r\n"
+        "SUMMARY:네이버 부동산 매물 입력\r\n"
+        "DESCRIPTION:네이버 부동산 관심 단지 매물 복사 후 앱에 입력하기\r\n"
+        "END:VEVENT\r\n"
+        "END:VCALENDAR\r\n"
+    )
+    st.download_button(
+        "📅 매주 입력 리마인더 캘린더 추가 (.ics)",
+        _ICS.encode("utf-8"),
+        "naver_land_reminder.ics",
+        "text/calendar",
+        use_container_width=True,
+    )
     st.stop()
 
 # 필수값 검증
@@ -190,6 +211,18 @@ if do_save:
     if blocked:
         msg += f" / 삭제된 매물 차단 {blocked}건"
     st.success(msg)
+
+    # Google Sheets 자동 백업
+    with st.spinner("☁️ Google Sheets 백업 중…"):
+        try:
+            _sheet = os.environ.get("AUTO_RESTORE_SHEET", "기록")
+            _pushed, _err = push_to_sheet(_sheet)
+            if _err:
+                st.warning(f"☁️ 시트 백업 실패 (로컬DB는 정상): {_err[:120]}")
+            else:
+                st.success(f"☁️ Google Sheets 백업 완료 ({_pushed}건 → {_sheet})")
+        except Exception as _e:
+            st.warning(f"☁️ 시트 백업 실패 (로컬DB는 정상): {_e}")
 
     # 저장 완료 후 입력 초기화
     st.session_state["df_parsed"] = None

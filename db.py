@@ -432,6 +432,30 @@ def restore_from_sheet(sheet_name: str) -> tuple:
     return inserted, updated, skipped
 
 
+def push_to_sheet(sheet_name: str = "기록") -> tuple[int, str]:
+    """현재 DB 전체를 Google Sheets로 push. 반환: (ok_cnt, err_msg)"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT h.seen_at, h.batch_id, l.uid, l.complex_name, l.dong, l.area,
+                   l.floor, l.direction, l.trade_type, h.price_text, h.confirm_date,
+                   l.provider, l.office, l.memo, l.raw_block
+            FROM price_history h JOIN listings l ON l.uid = h.uid
+            ORDER BY h.seen_at
+        """).fetchall()
+    rows_2d = [list(r) for r in rows]
+    try:
+        resp = requests.post(
+            GAS_URL,
+            json={"token": GAS_TOKEN, "rows": rows_2d, "sheet_name": sheet_name},
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            return (len(rows_2d), "")
+        return (0, f"HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        return (0, str(e))
+
+
 # =========================
 # Visited Properties
 # =========================
