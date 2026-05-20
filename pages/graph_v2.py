@@ -17,16 +17,25 @@ from utils_graph import build_df, make_weekly, DROP_TH, SHARED_CSS
 
 PRIORITY_COMPLEX = "평택센트럴자이 2단지"
 MY_BUY_PRICE     = 3.20
-MID_HIGH_FLOOR   = 11
 COLS_PER_ROW     = 2
 _DAY_MS          = 86_400_000
 
-# 기간 옵션 (세분화)
 X_OPTIONS = {
     "1주": 7, "2주": 14, "3주": 21, "4주": 28,
     "6주": 42, "2달": 60, "3달": 90, "6달": 180, "1년": 365,
 }
 DEFAULT_PERIOD = "2달"
+
+# 층 구분 그룹: 이름 → (min, max) / None = 제한 없음
+FLOOR_GROUPS = {
+    "전체":        (None, None),
+    "저층(≤5)":    (None, 5),
+    "중층(6-10)":  (6, 10),
+    "중상층(11-15)": (11, 15),
+    "고층(≥16)":   (16, None),
+}
+FLOOR_KEYS = list(FLOOR_GROUPS.keys())
+DEFAULT_FLOOR = "중상층(11-15)"
 
 
 def _parse_floor(val) -> int | None:
@@ -39,13 +48,28 @@ def _parse_floor(val) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _area_label(area_str) -> str:
+    """'84A/59.7m²' → '84A'"""
+    if not area_str or str(area_str) in ("None", "nan"):
+        return "?"
+    return str(area_str).split("/")[0].strip()
+
+
 def _auto_dtick(y_range: float) -> float:
-    """Y축 범위에 따라 눈금 간격 자동 결정"""
     if y_range <= 0.5:  return 0.1
     if y_range <= 1.5:  return 0.2
     if y_range <= 3.0:  return 0.5
     if y_range <= 8.0:  return 1.0
     return 2.0
+
+
+def _week_label(dt) -> str:
+    """날짜 → 'W21' 형식 (ISO 주차)"""
+    try:
+        iso = pd.Timestamp(dt).isocalendar()
+        return f"W{iso[1]:02d}"
+    except Exception:
+        return str(dt)[:5]
 
 
 inject_korean_font()
@@ -55,9 +79,11 @@ st.markdown(SHARED_CSS, unsafe_allow_html=True)
 st.markdown("""
 <style>
 [data-testid="stButton"] button {
-    height: 32px !important; min-height: 0 !important;
-    padding: 0 6px !important; font-size: 12px !important;
+    height: 28px !important; min-height: 0 !important;
+    padding: 0 5px !important; font-size: 11px !important;
 }
+[data-testid="stRadio"] > div { gap: 4px !important; }
+[data-testid="stRadio"] label { font-size: 11px !important; padding: 2px 6px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,7 +93,7 @@ if df_all.empty:
     st.error("데이터 없음"); st.stop()
 
 # ── 사이드바: 단지 선택만 ──────────────────────────
-_raw_list    = sorted(df_all["complex_name"].unique().tolist())
+_raw_list     = sorted(df_all["complex_name"].unique().tolist())
 _complex_list = (
     [PRIORITY_COMPLEX] + [c for c in _raw_list if c != PRIORITY_COMPLEX]
     if PRIORITY_COMPLEX in _raw_list else _raw_list
@@ -93,8 +119,12 @@ df = df_all[df_all["complex_name"].isin(sel)].copy()
 if df.empty:
     st.warning("조건에 맞는 데이터가 없습니다."); st.stop()
 
+# floor 컬럼 숫자화 (전체 df에서 한 번만)
+if "floor" in df.columns:
+    df["_floor_n"] = df["floor"].apply(_parse_floor)
+
 # ── 헤더 + 기간 드롭다운 ────────────────────────────
-_hcol, _pcol, _ = st.columns([3, 2, 5])
+_hcol, _pcol, _ = st.columns([4, 2, 4])
 _hcol.markdown("#### 📊 가격 추이 차트")
 _period_label = _pcol.selectbox(
     "기간",
@@ -105,7 +135,6 @@ _period_label = _pcol.selectbox(
 )
 _x_days = X_OPTIONS[_period_label]
 
-# X축 범위 계산
 _all_days = df["uploadday"].dropna().tolist()
 if _all_days:
     X_MAX = max(_all_days)
@@ -128,21 +157,84 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             chart_cols[col_idx].caption(f"{cname} — 데이터 없음")
             continue
 
-        # 중상층 필터
-        if "floor" in dfc.columns:
-            dfc["_floor_n"] = dfc["floor"].apply(_parse_floor)
-            dfc_mid = dfc[dfc["_floor_n"] >= MID_HIGH_FLOOR]
-        else:
-            dfc_mid = dfc
-        use_all = dfc_mid.empty
-        plot_df = dfc if use_all else dfc_mid
-        floor_comment = (
-            f"⚠️ 중상층 없음 — 전체 {len(dfc)}건"
-            if use_all else
-            f"🏢 중상층(11층+) {len(dfc_mid)}건 / 전체 {len(dfc)}건"
-        )
+        # ── 단지별 필터 UI ──────────────────────────
+        with chart_cols[col_idx]:
 
-        # 주차 집계 (고정)
+            # 평형 옵션 (단지 내 unique area)
+            _area_raw   = dfc["area"].dropna().unique().tolist() if "area" in dfc.columns else []
+            _area_labels = ["전체"] + sorted({_area_label(a) for a in _area_raw if _area_label(a) != "?"})
+            _fk_area    = f"fa_{cname}"
+            if _fk_area not in st.session_state or st.session_state[_fk_area] not in _area_labels:
+                st.session_state[_fk_area] = "전체"
+
+            # 동 옵션
+            _dong_opts  = ["전체"] + sorted(dfc["dong"].dropna().unique().tolist()) if "dong" in dfc.columns else ["전체"]
+            _fk_dong    = f"fd_{cname}"
+            if _fk_dong not in st.session_state or st.session_state[_fk_dong] not in _dong_opts:
+                st.session_state[_fk_dong] = "전체"
+
+            # 층 옵션
+            _fk_floor   = f"ff_{cname}"
+            if _fk_floor not in st.session_state:
+                st.session_state[_fk_floor] = DEFAULT_FLOOR
+
+            # 필터 행 표시
+            _f1, _f2, _f3 = st.columns([1.2, 1.5, 2.3])
+            _f1.caption("**층**")
+            _f2.caption("**평형**")
+            _f3.caption("**동**")
+
+            st.session_state[_fk_floor] = _f1.radio(
+                "층 선택", FLOOR_KEYS,
+                index=FLOOR_KEYS.index(st.session_state[_fk_floor]),
+                key=f"r_floor_{cname}", label_visibility="collapsed",
+            )
+            st.session_state[_fk_area] = _f2.radio(
+                "평형 선택", _area_labels,
+                index=_area_labels.index(st.session_state[_fk_area]),
+                key=f"r_area_{cname}", label_visibility="collapsed",
+            )
+            st.session_state[_fk_dong] = _f3.radio(
+                "동 선택", _dong_opts,
+                index=_dong_opts.index(st.session_state[_fk_dong]),
+                key=f"r_dong_{cname}", label_visibility="collapsed",
+            )
+
+        # ── 필터 적용 ────────────────────────────────
+        _sel_floor = st.session_state[_fk_floor]
+        _sel_area  = st.session_state[_fk_area]
+        _sel_dong  = st.session_state[_fk_dong]
+
+        plot_df = dfc.copy()
+
+        # 동 필터
+        if _sel_dong != "전체" and "dong" in plot_df.columns:
+            _tmp = plot_df[plot_df["dong"] == _sel_dong]
+            if not _tmp.empty:
+                plot_df = _tmp
+
+        # 평형 필터
+        if _sel_area != "전체" and "area" in plot_df.columns:
+            _tmp = plot_df[plot_df["area"].apply(_area_label) == _sel_area]
+            if not _tmp.empty:
+                plot_df = _tmp
+
+        # 층 필터
+        _flo, _fhi = FLOOR_GROUPS[_sel_floor]
+        if "floor" in plot_df.columns and (_flo is not None or _fhi is not None):
+            plot_df["_floor_n"] = plot_df["floor"].apply(_parse_floor)
+            if _flo is not None and _fhi is not None:
+                _tmp = plot_df[(plot_df["_floor_n"] >= _flo) & (plot_df["_floor_n"] <= _fhi)]
+            elif _flo is not None:
+                _tmp = plot_df[plot_df["_floor_n"] >= _flo]
+            else:
+                _tmp = plot_df[plot_df["_floor_n"] <= _fhi]
+            if not _tmp.empty:
+                plot_df = _tmp
+
+        floor_note = f"층:{_sel_floor} | 평형:{_sel_area} | 동:{_sel_dong} | {len(plot_df)}건"
+
+        # 주차 집계
         d2   = make_weekly(plot_df, DROP_TH)
         x    = d2["uploadday"]
         mask = x.notna() & d2["min_eok"].notna()
@@ -151,14 +243,18 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             continue
 
         # ── Y축 개별 범위 계산 ──────────────────────
-        _vals   = pd.concat([d2["min_eok"], d2["max_eok"]]).dropna()
-        _v_min  = float(_vals.min())
-        _v_max  = float(_vals.max())
-        _span   = max(_v_max - _v_min, 0.2)
-        _pad    = max(0.1, round(_span * 0.15, 2))
-        _y_min  = round(math.floor(_v_min * 10) / 10 - _pad, 2)
-        _y_max  = round(math.ceil(_v_max * 10) / 10 + _pad, 2)
-        _dtick  = _auto_dtick(_y_max - _y_min)
+        _vals  = pd.concat([d2["min_eok"], d2["max_eok"]]).dropna()
+        _v_min = float(_vals.min())
+        _v_max = float(_vals.max())
+        _span  = max(_v_max - _v_min, 0.2)
+        _pad   = max(0.1, round(_span * 0.15, 2))
+        _y_min = round(math.floor(_v_min * 10) / 10 - _pad, 2)
+        _y_max = round(math.ceil(_v_max * 10) / 10 + _pad, 2)
+        _dtick = _auto_dtick(_y_max - _y_min)
+
+        # ── X축 주차 레이블 ─────────────────────────
+        _tickvals = x[mask].tolist()
+        _ticktext = [_week_label(dt) for dt in _tickvals]
 
         C_MIN = "#2563eb"
         C_AVG = "#94a3b8"
@@ -170,7 +266,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
 
         fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-        # 최고-최저 밴드
         fig.add_trace(go.Scatter(
             x=x[mask], y=d2["max_eok"][mask], name="최고",
             mode="lines+markers",
@@ -185,7 +280,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             showlegend=False, hoverinfo="skip",
         ), secondary_y=False)
 
-        # 평균가
         avg_mask = mask & d2["avg_eok"].notna()
         if avg_mask.any():
             fig.add_trace(go.Scatter(
@@ -195,7 +289,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 hovertemplate=_hover,
             ), secondary_y=False)
 
-        # 추세선 (7주 이동평균)
         _trend_mask = d2["min_7avg"].notna()
         if _trend_mask.any():
             fig.add_trace(go.Scatter(
@@ -206,7 +299,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 hovertemplate="%{x|%Y-%m-%d}<br>추세 %{y:.2f}억<extra></extra>",
             ), secondary_y=False)
 
-        # 최저가
         fig.add_trace(go.Scatter(
             x=x[mask], y=d2["min_eok"][mask], name="최저",
             mode="lines+markers",
@@ -215,7 +307,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             hovertemplate=_hover,
         ), secondary_y=False)
 
-        # 급락 마커
         drops = d2[d2["is_drop"]]
         if not drops.empty:
             fig.add_trace(go.Scatter(
@@ -225,7 +316,6 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
                 hovertemplate="%{x|%Y-%m-%d}<br>▼ 급락 %{y:.2f}억<extra></extra>",
             ), secondary_y=False)
 
-        # 매물 수량 막대
         if not _n_actual.empty:
             fig.add_trace(go.Bar(
                 x=_n_actual["uploadday"], y=_n_actual["n"],
@@ -251,14 +341,14 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
         fig.update_layout(
             title=dict(text=cname, font=dict(size=13, color="#1e293b"), x=0, xanchor="left"),
             height=360,
-            margin=dict(l=50, r=40, t=36, b=70),
+            margin=dict(l=50, r=40, t=36, b=60),
             plot_bgcolor="white",
-            legend=dict(orientation="h", y=-0.22, x=0, font=dict(size=10)),
+            legend=dict(orientation="h", y=-0.20, x=0, font=dict(size=10)),
             hovermode="x unified",
             xaxis=dict(
-                tickfont=dict(size=10), tickangle=45,
-                tickformat="%m/%d",
-                dtick=7 * _DAY_MS,
+                tickvals=_tickvals,
+                ticktext=_ticktext,
+                tickfont=dict(size=10), tickangle=0,
                 range=[X_MIN, X_MAX] if X_MIN is not None else None,
                 gridcolor="#f1f5f9", showgrid=True,
                 fixedrange=True,
@@ -283,7 +373,7 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
             fig, use_container_width=True,
             config={"staticPlot": False, "displayModeBar": False, "scrollZoom": False},
         )
-        chart_cols[col_idx].caption(floor_comment)
+        chart_cols[col_idx].caption(floor_note)
 
 
 # ══════════════════════════════════════════════
@@ -292,20 +382,40 @@ for row_start in range(0, len(sel), COLS_PER_ROW):
 st.divider()
 st.markdown(
     '<div class="sec" style="margin-top:4px;">📋 단지별 가격 현황 '
-    '<span style="font-size:10px;color:#94a3b8;font-weight:400;">· 중상층(11층+) 기준, 최근 1주</span></div>',
+    '<span style="font-size:10px;color:#94a3b8;font-weight:400;">· 필터 선택 기준, 최근 1주</span></div>',
     unsafe_allow_html=True,
 )
 
 CUT_RECENT = pd.Timestamp(datetime.now() - timedelta(days=7))
 summary_rows = []
+
 for cname in sel:
     dfc = df[df["complex_name"] == cname].copy()
     if dfc.empty:
         continue
-    if "floor" in dfc.columns:
+
+    # 필터 상태 반영
+    _sel_floor = st.session_state.get(f"ff_{cname}", DEFAULT_FLOOR)
+    _sel_area  = st.session_state.get(f"fa_{cname}", "전체")
+    _sel_dong  = st.session_state.get(f"fd_{cname}", "전체")
+
+    if _sel_dong != "전체" and "dong" in dfc.columns:
+        _t = dfc[dfc["dong"] == _sel_dong]
+        if not _t.empty: dfc = _t
+    if _sel_area != "전체" and "area" in dfc.columns:
+        _t = dfc[dfc["area"].apply(_area_label) == _sel_area]
+        if not _t.empty: dfc = _t
+    _flo, _fhi = FLOOR_GROUPS[_sel_floor]
+    if "floor" in dfc.columns and (_flo is not None or _fhi is not None):
         dfc["_floor_n"] = dfc["floor"].apply(_parse_floor)
-        dfc_m = dfc[dfc["_floor_n"] >= MID_HIGH_FLOOR]
-        dfc   = dfc_m if not dfc_m.empty else dfc
+        if _flo and _fhi:
+            _t = dfc[(dfc["_floor_n"] >= _flo) & (dfc["_floor_n"] <= _fhi)]
+        elif _flo:
+            _t = dfc[dfc["_floor_n"] >= _flo]
+        else:
+            _t = dfc[dfc["_floor_n"] <= _fhi]
+        if not _t.empty: dfc = _t
+
     recent = dfc[dfc["uploadday"] >= CUT_RECENT]
     older  = dfc[dfc["uploadday"] <  CUT_RECENT]
 
@@ -321,7 +431,6 @@ for cname in sel:
         "min_chg": round(cur_min - prv_min, 2) if prv_min is not None else None,
         "avg_chg": round(cur_avg - prv_avg, 2) if prv_avg is not None else None,
         "latest": dfc["uploadday"].max(),
-        "n": len(recent) if not recent.empty else 0,
     })
 
 summary_rows.sort(key=lambda r: r["cur_min"])
