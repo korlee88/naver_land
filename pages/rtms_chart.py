@@ -14,14 +14,25 @@ from utils_style import inject_korean_font
 inject_korean_font()
 
 DB_PATH = os.environ.get("DB_PATH", "/tmp/naver_land.db")
-MY_APT   = "평택센트럴자이 2단지"  # 실거주 단지
-MY_PRICE = 3.20                     # 매수가 (억)
+MY_APT_KEYWORD = "센트럴자이"  # 실거주 단지 식별 키워드 (표기 차이 흡수)
+MY_PRICE = 3.20                # 매수가 (억)
 
 PALETTE = [
     "#4C72B0","#DD8452","#55A868","#C44E52",
     "#8172B2","#937860","#DA8BC3","#8C8C8C",
     "#CCB974","#64B5CD",
 ]
+
+
+def _hex_to_rgba(hex_color: str, alpha: float = 0.12) -> str:
+    """#RRGGBB → rgba(r,g,b,alpha)"""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def _is_my_apt(name: str) -> bool:
+    return MY_APT_KEYWORD in name and "2단지" in name
 
 
 # ── 데이터 로드 ────────────────────────────────────────────────
@@ -92,7 +103,7 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str, height: int = 380) -
         x=pd.concat([stats["ym"], stats["ym"][::-1]]),
         y=pd.concat([stats["max"], stats["min"][::-1]]),
         fill="toself",
-        fillcolor=color.replace(")", ",0.12)").replace("rgb", "rgba") if color.startswith("rgb") else color + "20",
+        fillcolor=_hex_to_rgba(color, 0.12),
         line=dict(color="rgba(0,0,0,0)"),
         hoverinfo="skip",
         showlegend=False,
@@ -119,7 +130,7 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str, height: int = 380) -
     ))
 
     # 내 매수가 기준선 (실거주 단지만)
-    if cname == MY_APT:
+    if _is_my_apt(cname):
         fig.add_hline(
             y=MY_PRICE,
             line=dict(color="#e74c3c", width=1.5, dash="dash"),
@@ -166,7 +177,7 @@ with st.sidebar:
     all_apts = sorted(df_all["apt_name"].unique())
 
     # 실거주 단지 우선
-    priority = [MY_APT] if MY_APT in all_apts else []
+    priority = [a for a in all_apts if _is_my_apt(a)]
     rest     = [a for a in all_apts if a not in priority]
     apt_list = priority + rest
 
@@ -206,8 +217,9 @@ elif period == "최근 2년":
     cutoff = today - pd.DateOffset(months=24)
 
 # ── KPI (실거주 단지) ──────────────────────────────────────────
-if MY_APT in selected:
-    dfc = df_all[df_all["apt_name"] == MY_APT]
+_my_selected = next((a for a in selected if _is_my_apt(a)), None)
+if _my_selected:
+    dfc = df_all[df_all["apt_name"] == _my_selected]
     if sel_areas:
         dfc = dfc[dfc["area_label"].isin(sel_areas)]
     if cutoff is not None:
@@ -220,7 +232,7 @@ if MY_APT in selected:
             delta = cur - prev
             cur_min = stats["min"].iloc[-1]
 
-            st.markdown(f"### 🏠 {MY_APT}")
+            st.markdown(f"### 🏠 {_my_selected}")
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("이번 달 평균", f"{cur:.2f}억", f"{delta:+.2f}억")
             k2.metric("이번 달 최저", f"{cur_min:.2f}억")
