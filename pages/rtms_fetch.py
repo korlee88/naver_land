@@ -101,19 +101,23 @@ def _fetch_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int =
         total = int(root.findtext(".//totalCount", "0") or 0)
         items = []
         for item in root.findall(".//item"):
-            def g(tag):
-                v = item.findtext(tag, "")
-                return v.strip() if v else ""
+            def g(*tags):
+                """한글/영문 태그 모두 시도 — 신형 Dev API는 영문 태그 사용"""
+                for tag in tags:
+                    v = item.findtext(tag, "")
+                    if v and v.strip():
+                        return v.strip()
+                return ""
             items.append({
-                "apt_name":   g("아파트"),
-                "dong":       g("법정동"),
-                "floor":      g("층"),
-                "area":       g("전용면적"),
-                "price_man":  g("거래금액").replace(",", ""),
-                "build_year": g("건축년도"),
-                "deal_day":   g("일"),
-                "road_name":  g("도로명"),
-                "cancel_yn":  g("해제여부"),
+                "apt_name":   g("아파트", "aptNm"),
+                "dong":       g("법정동", "umdNm"),
+                "floor":      g("층", "floor"),
+                "area":       g("전용면적", "excluUseAr"),
+                "price_man":  g("거래금액", "dealAmount").replace(",", ""),
+                "build_year": g("건축년도", "buildYear"),
+                "deal_day":   g("일", "dealDay"),
+                "road_name":  g("도로명", "roadNm"),
+                "cancel_yn":  g("해제여부", "cdealType"),
             })
         return {"error": "", "totalCount": total, "items": items}
     except Exception as e:
@@ -193,6 +197,8 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
     total_saved = 0
     first_error = None
 
+    sample_names: set[str] = set()  # 진단용: 실제 들어오는 아파트명 모음
+
     for i, ym in enumerate(yms):
         status.markdown(f"**수집 중...** {ym} ({i+1}/{len(yms)})")
 
@@ -210,6 +216,11 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
             page += 1
             time.sleep(0.2)
 
+        # 진단: 받은 아파트명 수집 (최대 300개까지)
+        for it in all_items:
+            if len(sample_names) < 300:
+                sample_names.add(it.get("apt_name", "") or "(빈값)")
+
         saved = _save_items(lawd_cd, ym, all_items)
         total_saved += saved
         with log:
@@ -218,6 +229,16 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
         time.sleep(0.1)
 
     status.empty()
+
+    # 진단 패널: 실제 받은 아파트명 목록 (필터 매칭 확인용)
+    if sample_names:
+        matched = [n for n in sorted(sample_names)
+                   if any(kw in n for kw in TARGET_KEYWORDS)]
+        with st.expander(f"🔍 진단: 받은 단지명 {len(sample_names)}종 (필터 매칭 {len(matched)}종)", expanded=(total_saved == 0)):
+            st.markdown("**키워드 매칭된 단지:**")
+            st.write(matched if matched else "(매칭된 단지 없음 — 키워드 수정 필요)")
+            st.markdown("**받은 전체 단지명 (가나다순):**")
+            st.write(sorted(sample_names))
     if first_error:
         st.error(f"API 오류: {first_error}\n\n인증키가 올바른지, 활용신청이 승인됐는지 확인하세요.")
     if total_saved > 0:
