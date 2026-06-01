@@ -123,6 +123,29 @@ def init_db() -> None:
         )
         """)
 
+        # 네이버 API 자동 수집 시세 (주간 집계)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS naver_market_prices (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            complex_name        TEXT    NOT NULL,
+            complex_number      INTEGER NOT NULL,
+            pyeong_label        TEXT,
+            pyeong_type_number  INTEGER NOT NULL,
+            cp                  TEXT    NOT NULL,
+            trade_type          TEXT    NOT NULL,
+            price_date          TEXT    NOT NULL,
+            avg_price           INTEGER,
+            max_price           INTEGER,
+            min_price           INTEGER,
+            fetched_at          TEXT    NOT NULL,
+            UNIQUE(complex_number, pyeong_type_number, cp, trade_type, price_date)
+        )
+        """)
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_nmp_complex_date
+        ON naver_market_prices(complex_name, trade_type, price_date)
+        """)
+
         # ✅ 혹시 예전 DB에 batch_id 컬럼이 없던 경우 대비 (마이그레이션)
         cur.execute("PRAGMA table_info(price_history)")
         cols = [r["name"] for r in cur.fetchall()]
