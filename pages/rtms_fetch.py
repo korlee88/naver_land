@@ -19,7 +19,8 @@ inject_korean_font()
 
 DB_PATH = os.environ.get("DB_PATH", "/tmp/naver_land.db")
 
-API_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+API_URL       = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+API_URL_RENT  = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
 
 # 수집 대상 단지명 키워드 (포함 시 저장, 빈 값이면 전체)
 TARGET_KEYWORDS = [
@@ -40,6 +41,25 @@ _KEY_SS = "rtms_api_key"
 # ── DB ────────────────────────────────────────────────────────
 def _init_table():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rtms_jeonse (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            lawd_cd      TEXT    NOT NULL,
+            deal_year    INTEGER NOT NULL,
+            deal_month   INTEGER NOT NULL,
+            apt_name     TEXT    NOT NULL,
+            area         REAL,
+            deposit_man  INTEGER,
+            monthly_rent INTEGER,
+            contract_type TEXT,
+            fetched_at   TEXT    NOT NULL,
+            UNIQUE(lawd_cd, deal_year, deal_month, apt_name, area, deposit_man, monthly_rent)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_jeonse_apt_date
+        ON rtms_jeonse(apt_name, deal_year, deal_month)
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS rtms_transactions (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,6 +181,73 @@ def _save_items(lawd_cd: str, ym: str, items: list) -> int:
     return saved
 
 
+def _fetch_rent_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int = 100) -> dict:
+    """전월세 한 달치 조회"""
+    params = {
+        "serviceKey": api_key, "LAWD_CD": lawd_cd,
+        "DEAL_YMD": ym, "pageNo": page, "numOfRows": num_rows,
+    }
+    try:
+        resp = requests.get(API_URL_RENT, params=params, timeout=20)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+        code = root.findtext(".//resultCode", "")
+        if code not in ("00", "000"):
+            return {"error": root.findtext(".//resultMsg", "오류"), "totalCount": 0, "items": []}
+        total = int(root.findtext(".//totalCount", "0") or 0)
+        items = []
+        for item in root.findall(".//item"):
+            def g(*tags):
+                for tag in tags:
+                    v = item.findtext(tag, "")
+                    if v and v.strip(): return v.strip()
+                return ""
+            items.append({
+                "apt_name":      g("아파트", "aptNm"),
+                "area":          g("전용면적", "excluUseAr"),
+                "deposit":       g("보증금액", "deposit").replace(",", ""),
+                "monthly_rent":  g("월세금액", "monthlyRent").replace(",", ""),
+                "contract_type": g("계약구분", "contractType"),
+            })
+        return {"error": "", "totalCount": total, "items": items}
+    except Exception as e:
+        return {"error": str(e), "totalCount": 0, "items": []}
+
+
+def _save_rent_items(lawd_cd: str, ym: str, items: list) -> int:
+    year, month = int(ym[:4]), int(ym[4:])
+    fetched_at  = date.today().isoformat()
+    rows = []
+    for it in items:
+        if TARGET_KEYWORDS and not any(kw in it["apt_name"] for kw in TARGET_KEYWORDS):
+            continue
+        try:
+            deposit = int(it["deposit"]) if it["deposit"] else None
+            rent    = int(it["monthly_rent"]) if it["monthly_rent"] else 0
+            area    = float(it["area"]) if it["area"] else None
+        except (ValueError, TypeError):
+            continue
+        if deposit is None:
+            continue
+        rows.append((
+            lawd_cd, year, month, it["apt_name"], area,
+            deposit, rent, it["contract_type"] or None, fetched_at,
+        ))
+    if not rows:
+        return 0
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cur = conn.executemany("""
+        INSERT OR IGNORE INTO rtms_jeonse
+          (lawd_cd, deal_year, deal_month, apt_name, area,
+           deposit_man, monthly_rent, contract_type, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, rows)
+    conn.commit()
+    saved = cur.rowcount
+    conn.close()
+    return saved
+
+
 # ── 페이지 UI ─────────────────────────────────────────────────
 _init_table()
 
@@ -186,6 +273,12 @@ with col2:
 
 lawd_cd = LAWD_OPTIONS[region]
 st.caption(f"법정동 코드: {lawd_cd}  |  대상 단지 키워드: {', '.join(TARGET_KEYWORDS)}")
+
+also_rent = st.checkbox(
+    "전월세 데이터도 함께 수집 (전세가율 계산에 필요)",
+    value=True,
+    help="국토부 전월세 실거래가 API를 추가로 호출합니다. 전세가율 = 전세보증금 ÷ 매매가"
+)
 
 st.divider()
 
@@ -228,6 +321,27 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
         progress.progress((i + 1) / len(yms))
         time.sleep(0.1)
 
+    # 전월세 수집
+    rent_saved = 0
+    if also_rent and not first_error:
+        status2 = st.empty()
+        for i, ym in enumerate(yms):
+            status2.markdown(f"**전월세 수집 중...** {ym} ({i+1}/{len(yms)})")
+            all_items = []
+            page = 1
+            while True:
+                res = _fetch_rent_month(api_key, lawd_cd, ym, page)
+                if res["error"] or not res["items"]:
+                    break
+                all_items.extend(res["items"])
+                if len(all_items) >= res["totalCount"]:
+                    break
+                page += 1
+                time.sleep(0.2)
+            rent_saved += _save_rent_items(lawd_cd, ym, all_items)
+            time.sleep(0.1)
+        status2.empty()
+
     status.empty()
 
     # 진단 패널: 실제 받은 아파트명 목록 (필터 매칭 확인용)
@@ -241,8 +355,8 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
             st.write(sorted(sample_names))
     if first_error:
         st.error(f"API 오류: {first_error}\n\n인증키가 올바른지, 활용신청이 승인됐는지 확인하세요.")
-    if total_saved > 0:
-        st.success(f"🎉 수집 완료 — 총 **{total_saved}건** 저장")
+    if total_saved > 0 or rent_saved > 0:
+        st.success(f"🎉 수집 완료 — 매매 **{total_saved}건** / 전월세 **{rent_saved}건** 저장")
     elif not first_error:
         st.warning("저장된 건이 없습니다. (해당 기간 대상 단지 거래가 없었을 수 있음)")
 
