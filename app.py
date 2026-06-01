@@ -38,6 +38,7 @@ pg = st.navigation([
     st.Page("rawdata.py",            title="매물 입력",         icon="📝"),
     st.Page("pages/raw_manage.py",   title="RAW 관리",          icon="🧹"),
     st.Page("pages/naver_fetch.py",  title="시세 자동 수집",    icon="🤖"),
+    st.Page("pages/rtms_fetch.py",   title="국토부 실거래가",   icon="🏛️"),
 ], position="hidden")
 
 with st.sidebar:
@@ -47,6 +48,7 @@ with st.sidebar:
     st.page_link("rawdata.py",            label="매물 데이터 입력",  icon="📝")
     st.page_link("pages/raw_manage.py",   label="데이터 관리",       icon="🗂️")
     st.page_link("pages/naver_fetch.py",  label="시세 자동 수집",    icon="🤖")
+    st.page_link("pages/rtms_fetch.py",   label="국토부 실거래가",   icon="🏛️")
     st.divider()
 
 pg.run()
