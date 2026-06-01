@@ -33,22 +33,14 @@ if _auto_sheet and "auto_restored" not in st.session_state:
                 st.warning(f"⚠️ 자동 복원 실패: {e}  |  RAW 관리 페이지에서 수동 복원해주세요.")
 
 pg = st.navigation([
-    st.Page("pages/graph_v2.py",     title="가격 추이(웹)",     icon="📊", default=True),
-    st.Page("pages/graph_mobile.py", title="가격 추이(모바일)", icon="📱"),
-    st.Page("rawdata.py",            title="매물 입력",         icon="📝"),
-    st.Page("pages/raw_manage.py",   title="RAW 관리",          icon="🧹"),
-    st.Page("pages/naver_fetch.py",  title="시세 자동 수집",    icon="🤖"),
-    st.Page("pages/rtms_fetch.py",   title="국토부 실거래가",   icon="🏛️"),
+    st.Page("pages/rtms_chart.py",  title="가격 추이",       icon="📊", default=True),
+    st.Page("pages/rtms_fetch.py",  title="실거래가 수집",   icon="🏛️"),
 ], position="hidden")
 
 with st.sidebar:
     st.markdown("**Menu**")
-    st.page_link("pages/graph_v2.py",     label="가격 추이(웹)",     icon="📊")
-    st.page_link("pages/graph_mobile.py", label="가격 추이(모바일)", icon="📱")
-    st.page_link("rawdata.py",            label="매물 데이터 입력",  icon="📝")
-    st.page_link("pages/raw_manage.py",   label="데이터 관리",       icon="🗂️")
-    st.page_link("pages/naver_fetch.py",  label="시세 자동 수집",    icon="🤖")
-    st.page_link("pages/rtms_fetch.py",   label="국토부 실거래가",   icon="🏛️")
+    st.page_link("pages/rtms_chart.py",  label="가격 추이",       icon="📊")
+    st.page_link("pages/rtms_fetch.py",  label="실거래가 수집",   icon="🏛️")
     st.divider()
 
 pg.run()
