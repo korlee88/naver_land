@@ -6,3 +6,4 @@ matplotlib
 requests
 openpyxl
 pyarrow
+python-dateutil
