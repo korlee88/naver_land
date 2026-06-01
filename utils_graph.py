@@ -198,6 +198,51 @@ def make_weekly(dfc, drop_th=DROP_TH):
     return d
 
 
+@st.cache_data(ttl=3600)
+def build_df_api(trade_type: str = "매매") -> pd.DataFrame:
+    """
+    naver_market_prices 테이블(fetch_naver.py 수집 데이터)을 읽어
+    build_df()와 동일한 컬럼 구조의 DataFrame 반환.
+    trade_type: '매매' | '전세'
+    """
+    import sqlite3, os
+    db_path = os.environ.get("DB_PATH", "/tmp/naver_land.db")
+    # 로컬 실행 시 현재 디렉터리 DB 우선
+    if not os.path.exists(db_path):
+        db_path = "./naver_land.db"
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT complex_name, pyeong_label AS area,
+                   trade_type, price_date,
+                   avg_price, max_price, min_price, cp
+            FROM naver_market_prices
+            WHERE trade_type = ?
+        """, (trade_type,)).fetchall()
+        conn.close()
+    except Exception:
+        return pd.DataFrame()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame([dict(r) for r in rows])
+    df["uploadday"] = pd.to_datetime(df["price_date"], errors="coerce")
+    df["eok"]       = df["avg_price"] / 1e8
+    df["min_eok_raw"] = df["min_price"] / 1e8
+    df["max_eok_raw"] = df["max_price"] / 1e8
+    # build_df 호환 컬럼 채우기
+    df["dong"]      = None
+    df["floor"]     = None
+    df["direction"] = None
+    df["price_text"] = df["avg_price"].apply(
+        lambda v: f"매매 {v/1e8:.2f}억" if pd.notna(v) else ""
+    )
+    df = df.dropna(subset=["eok", "uploadday"]).copy()
+    return df
+
+
 # ══════════════════════════════════════════════
 # 점수 계산
 # ══════════════════════════════════════════════
