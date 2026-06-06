@@ -504,6 +504,142 @@ def push_to_sheet(sheet_name: str = "기록") -> tuple[int, str]:
         return (0, str(e))
 
 
+RTMS_TRADE_SHEET  = "RTMS매매"
+RTMS_JEONSE_SHEET = "RTMS전월세"
+
+
+def is_rtms_empty() -> bool:
+    """rtms_transactions 테이블이 비어있으면 True"""
+    try:
+        with get_conn() as conn:
+            return conn.execute("SELECT COUNT(*) FROM rtms_transactions").fetchone()[0] == 0
+    except Exception:
+        return True
+
+
+def push_rtms_to_sheet() -> tuple[int, int, str]:
+    """rtms_transactions + rtms_jeonse → 구글시트 백업. 반환: (매매건수, 전월세건수, 오류메시지)"""
+    try:
+        with get_conn() as conn:
+            trade_rows = [list(r) for r in conn.execute("""
+                SELECT lawd_cd, deal_year, deal_month, deal_day,
+                       apt_name, dong, floor, area, price_man,
+                       build_year, road_name, cancel_yn, fetched_at
+                FROM rtms_transactions ORDER BY deal_year, deal_month
+            """).fetchall()]
+            jeonse_rows = [list(r) for r in conn.execute("""
+                SELECT lawd_cd, deal_year, deal_month, apt_name,
+                       area, deposit_man, monthly_rent, contract_type, fetched_at
+                FROM rtms_jeonse ORDER BY deal_year, deal_month
+            """).fetchall()]
+
+        def _push(rows, sheet_name):
+            if not rows:
+                return True
+            resp = requests.post(
+                GAS_URL,
+                json={"token": GAS_TOKEN, "rows": rows, "sheet_name": sheet_name},
+                timeout=60,
+            )
+            return resp.status_code == 200
+
+        ok1 = _push(trade_rows,  RTMS_TRADE_SHEET)
+        ok2 = _push(jeonse_rows, RTMS_JEONSE_SHEET)
+
+        if ok1 and ok2:
+            return (len(trade_rows), len(jeonse_rows), "")
+        return (0, 0, "구글시트 응답 오류")
+    except Exception as e:
+        return (0, 0, str(e))
+
+
+def restore_rtms_from_sheet() -> tuple[int, int]:
+    """구글시트 → rtms_transactions + rtms_jeonse 복원. 반환: (매매건수, 전월세건수)"""
+    fetched_at = datetime.now().isoformat(timespec="seconds")
+
+    def _fetch_rows(sheet_name):
+        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": sheet_name}, timeout=60)
+        r.raise_for_status()
+        return r.json().get("rows", [])
+
+    def _is_header(row):
+        return row and str(row[0]).strip().lower() in {"lawd_cd", "법정동코드", "날짜", "date"}
+
+    trade_saved = jeonse_saved = 0
+
+    # ── 매매 복원 ──
+    try:
+        rows = _fetch_rows(RTMS_TRADE_SHEET)
+        insert_rows = []
+        for row in rows:
+            if not row or _is_header(row):
+                continue
+            try:
+                insert_rows.append((
+                    str(row[0]),          # lawd_cd
+                    int(row[1]),          # deal_year
+                    int(row[2]),          # deal_month
+                    int(row[3]) if row[3] else 1,  # deal_day
+                    str(row[4]),          # apt_name
+                    str(row[5]) if row[5] else None,  # dong
+                    int(row[6]) if row[6] else None,  # floor
+                    float(row[7]) if row[7] else None,  # area
+                    int(row[8]),          # price_man
+                    int(row[9]) if row[9] else None,  # build_year
+                    str(row[10]) if row[10] else None,  # road_name
+                    str(row[11]) if row[11] else None,  # cancel_yn
+                    str(row[12]) if len(row) > 12 and row[12] else fetched_at,
+                ))
+            except (IndexError, ValueError, TypeError):
+                continue
+        if insert_rows:
+            with get_conn() as conn:
+                cur = conn.executemany("""
+                    INSERT OR IGNORE INTO rtms_transactions
+                      (lawd_cd, deal_year, deal_month, deal_day, apt_name, dong, floor, area,
+                       price_man, build_year, road_name, cancel_yn, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, insert_rows)
+                trade_saved = cur.rowcount
+    except Exception:
+        pass
+
+    # ── 전월세 복원 ──
+    try:
+        rows = _fetch_rows(RTMS_JEONSE_SHEET)
+        insert_rows = []
+        for row in rows:
+            if not row or _is_header(row):
+                continue
+            try:
+                insert_rows.append((
+                    str(row[0]),          # lawd_cd
+                    int(row[1]),          # deal_year
+                    int(row[2]),          # deal_month
+                    str(row[3]),          # apt_name
+                    float(row[4]) if row[4] else None,  # area
+                    int(row[5]) if row[5] else None,    # deposit_man
+                    int(row[6]) if row[6] else 0,       # monthly_rent
+                    str(row[7]) if row[7] else None,    # contract_type
+                    str(row[8]) if len(row) > 8 and row[8] else fetched_at,
+                ))
+            except (IndexError, ValueError, TypeError):
+                continue
+        if insert_rows:
+            with get_conn() as conn:
+                cur = conn.executemany("""
+                    INSERT OR IGNORE INTO rtms_jeonse
+                      (lawd_cd, deal_year, deal_month, apt_name, area,
+                       deposit_man, monthly_rent, contract_type, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, insert_rows)
+                jeonse_saved = cur.rowcount
+    except Exception:
+        pass
+
+    return trade_saved, jeonse_saved
+
+
 # =========================
 # Visited Properties
 # =========================

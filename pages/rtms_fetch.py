@@ -13,6 +13,7 @@ from datetime import date
 import requests
 import streamlit as st
 
+from db import push_rtms_to_sheet
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -357,6 +358,14 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
         st.error(f"API 오류: {first_error}\n\n인증키가 올바른지, 활용신청이 승인됐는지 확인하세요.")
     if total_saved > 0 or rent_saved > 0:
         st.success(f"🎉 수집 완료 — 매매 **{total_saved}건** / 전월세 **{rent_saved}건** 저장")
+
+        # 구글시트 자동 백업
+        with st.spinner("☁️ 구글시트에 자동 백업 중..."):
+            t, j, err = push_rtms_to_sheet()
+            if err:
+                st.caption(f"⚠️ 시트 백업 실패 (데이터는 로컬에 저장됨): {err}")
+            else:
+                st.caption(f"☁️ 구글시트 백업 완료 — 매매 {t}건 / 전월세 {j}건")
     elif not first_error:
         st.warning("저장된 건이 없습니다. (해당 기간 대상 단지 거래가 없었을 수 있음)")
 
