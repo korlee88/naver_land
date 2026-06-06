@@ -2,7 +2,7 @@
 import os
 import streamlit as st
 import setup_fonts
-from db import init_db, is_db_empty, restore_from_sheet
+from db import init_db, is_db_empty, restore_from_sheet, is_rtms_empty, restore_rtms_from_sheet
 
 # 폰트 초기화 (Streamlit Cloud: packages.txt 설치 폰트 우선, 없으면 다운로드)
 if "fonts_initialized" not in st.session_state:
@@ -19,7 +19,20 @@ st.set_page_config(
 # ── DB 초기화 (항상 실행 — 테이블 없으면 생성) ──
 init_db()
 
-# ── DB 자동 복원 (배포 후 DB가 비어있을 때 구글시트에서 자동 복원) ──
+# ── RTMS 실거래가 자동 복원 (수면 후 재시작 시 구글시트에서 복원) ──
+if "rtms_restored" not in st.session_state:
+    st.session_state.rtms_restored = True
+    if is_rtms_empty():
+        with st.spinner("📥 실거래가 데이터 복원 중..."):
+            try:
+                t, j = restore_rtms_from_sheet()
+                if t > 0 or j > 0:
+                    st.success(f"✅ 실거래가 복원 완료 — 매매 {t}건 / 전월세 {j}건")
+                    st.cache_data.clear()
+            except Exception:
+                pass  # 복원 실패 시 조용히 무시 (첫 수집 전일 수 있음)
+
+# ── 수동입력 DB 자동 복원 (배포 후 DB가 비어있을 때 구글시트에서 자동 복원) ──
 _auto_sheet = os.environ.get("AUTO_RESTORE_SHEET", "")
 if _auto_sheet and "auto_restored" not in st.session_state:
     st.session_state.auto_restored = True
