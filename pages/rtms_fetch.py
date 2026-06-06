@@ -23,15 +23,16 @@ DB_PATH = os.environ.get("DB_PATH", "/tmp/naver_land.db")
 API_URL       = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 API_URL_RENT  = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
 
-# 수집 대상 단지명 키워드 (포함 시 저장, 빈 값이면 전체)
-TARGET_KEYWORDS = [
-    "센트럴자이", "더샵지제역", "e편한세상",
-    "동문굿모닝힐", "동문디이스트", "우미린", "공도",
-]
+# 지역별 키워드 설정 — 빈 리스트이면 해당 지역 전체 수집
+REGION_KEYWORDS: dict[str, list[str]] = {
+    "41220": ["센트럴자이", "더샵지제역", "e편한세상", "동문굿모닝힐", "동문디이스트", "우미린", "공도"],
+    "43113": [],  # 청주 흥덕구 — 전체 수집 (단지 미지정)
+    "43114": [],  # 청주 청원구 — 전체 수집 (단지 미지정)
+}
 
-# 법정동 코드 (앞 5자리)
-LAWD_OPTIONS = {
-    "경기 평택시": "41220",
+# 법정동 코드 (앞 5자리) → 표시명
+LAWD_OPTIONS: dict[str, str] = {
+    "경기 평택시":      "41220",
     "충북 청주시 흥덕구": "43113",
     "충북 청주시 청원구": "43114",
 }
@@ -147,10 +148,11 @@ def _fetch_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int =
 
 def _save_items(lawd_cd: str, ym: str, items: list) -> int:
     year, month = int(ym[:4]), int(ym[4:])
-    fetched_at = date.today().isoformat()
+    fetched_at  = date.today().isoformat()
+    keywords    = REGION_KEYWORDS.get(lawd_cd, [])
     rows = []
     for it in items:
-        if TARGET_KEYWORDS and not any(kw in it["apt_name"] for kw in TARGET_KEYWORDS):
+        if keywords and not any(kw in it["apt_name"] for kw in keywords):
             continue
         try:
             price_man = int(it["price_man"]) if it["price_man"] else None
@@ -218,9 +220,10 @@ def _fetch_rent_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: 
 def _save_rent_items(lawd_cd: str, ym: str, items: list) -> int:
     year, month = int(ym[:4]), int(ym[4:])
     fetched_at  = date.today().isoformat()
+    keywords    = REGION_KEYWORDS.get(lawd_cd, [])
     rows = []
     for it in items:
-        if TARGET_KEYWORDS and not any(kw in it["apt_name"] for kw in TARGET_KEYWORDS):
+        if keywords and not any(kw in it["apt_name"] for kw in keywords):
             continue
         try:
             deposit = int(it["deposit"]) if it["deposit"] else None
@@ -268,12 +271,25 @@ if api_key:
 
 col1, col2 = st.columns(2)
 with col1:
-    region = st.selectbox("지역", list(LAWD_OPTIONS.keys()), index=0)
+    sel_regions = st.multiselect(
+        "지역 (복수 선택 가능)",
+        list(LAWD_OPTIONS.keys()),
+        default=["경기 평택시"],
+    )
 with col2:
     months = st.number_input("수집 개월 수", min_value=1, max_value=60, value=24, step=6)
 
-lawd_cd = LAWD_OPTIONS[region]
-st.caption(f"법정동 코드: {lawd_cd}  |  대상 단지 키워드: {', '.join(TARGET_KEYWORDS)}")
+if sel_regions:
+    selected_lawds = [LAWD_OPTIONS[r] for r in sel_regions]
+    kw_parts = []
+    for r in sel_regions:
+        lcd = LAWD_OPTIONS[r]
+        kws = REGION_KEYWORDS.get(lcd, [])
+        kw_parts.append(f"{r}: {', '.join(kws) if kws else '전체'}")
+    st.caption("  |  ".join(kw_parts))
+else:
+    selected_lawds = []
+    st.caption("지역을 하나 이상 선택하세요.")
 
 also_rent = st.checkbox(
     "전월세 데이터도 함께 수집 (전세가율 계산에 필요)",
@@ -283,72 +299,82 @@ also_rent = st.checkbox(
 
 st.divider()
 
-if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
+if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or not selected_lawds):
     yms = _ym_list(int(months))
+    total_steps = len(yms) * len(selected_lawds)
     progress = st.progress(0.0)
     status = st.empty()
     log = st.container()
     total_saved = 0
     first_error = None
+    sample_names: set[str] = set()
+    step = 0
 
-    sample_names: set[str] = set()  # 진단용: 실제 들어오는 아파트명 모음
+    for lawd_cd in selected_lawds:
+        region_name = next(k for k, v in LAWD_OPTIONS.items() if v == lawd_cd)
+        for i, ym in enumerate(yms):
+            status.markdown(f"**수집 중...** [{region_name}] {ym} ({step+1}/{total_steps})")
 
-    for i, ym in enumerate(yms):
-        status.markdown(f"**수집 중...** {ym} ({i+1}/{len(yms)})")
+            all_items = []
+            page = 1
+            while True:
+                res = _fetch_month(api_key, lawd_cd, ym, page)
+                if res["error"]:
+                    if first_error is None:
+                        first_error = res["error"]
+                    break
+                all_items.extend(res["items"])
+                if len(all_items) >= res["totalCount"] or not res["items"]:
+                    break
+                page += 1
+                time.sleep(0.2)
 
-        all_items = []
-        page = 1
-        while True:
-            res = _fetch_month(api_key, lawd_cd, ym, page)
-            if res["error"]:
-                if first_error is None:
-                    first_error = res["error"]
-                break
-            all_items.extend(res["items"])
-            if len(all_items) >= res["totalCount"] or not res["items"]:
-                break
-            page += 1
-            time.sleep(0.2)
+            for it in all_items:
+                if len(sample_names) < 300:
+                    sample_names.add(it.get("apt_name", "") or "(빈값)")
 
-        # 진단: 받은 아파트명 수집 (최대 300개까지)
-        for it in all_items:
-            if len(sample_names) < 300:
-                sample_names.add(it.get("apt_name", "") or "(빈값)")
-
-        saved = _save_items(lawd_cd, ym, all_items)
-        total_saved += saved
-        with log:
-            st.caption(f"  {ym} → 전체 {len(all_items)}건 중 대상 {saved}건 저장")
-        progress.progress((i + 1) / len(yms))
-        time.sleep(0.1)
+            saved = _save_items(lawd_cd, ym, all_items)
+            total_saved += saved
+            with log:
+                st.caption(f"  [{region_name}] {ym} → 전체 {len(all_items)}건 중 {saved}건 저장")
+            step += 1
+            progress.progress(step / total_steps)
+            time.sleep(0.1)
 
     # 전월세 수집
     rent_saved = 0
     if also_rent and not first_error:
         status2 = st.empty()
-        for i, ym in enumerate(yms):
-            status2.markdown(f"**전월세 수집 중...** {ym} ({i+1}/{len(yms)})")
-            all_items = []
-            page = 1
-            while True:
-                res = _fetch_rent_month(api_key, lawd_cd, ym, page)
-                if res["error"] or not res["items"]:
-                    break
-                all_items.extend(res["items"])
-                if len(all_items) >= res["totalCount"]:
-                    break
-                page += 1
-                time.sleep(0.2)
-            rent_saved += _save_rent_items(lawd_cd, ym, all_items)
-            time.sleep(0.1)
+        step = 0
+        for lawd_cd in selected_lawds:
+            region_name = next(k for k, v in LAWD_OPTIONS.items() if v == lawd_cd)
+            for i, ym in enumerate(yms):
+                status2.markdown(f"**전월세 수집 중...** [{region_name}] {ym} ({step+1}/{total_steps})")
+                all_items = []
+                page = 1
+                while True:
+                    res = _fetch_rent_month(api_key, lawd_cd, ym, page)
+                    if res["error"] or not res["items"]:
+                        break
+                    all_items.extend(res["items"])
+                    if len(all_items) >= res["totalCount"]:
+                        break
+                    page += 1
+                    time.sleep(0.2)
+                rent_saved += _save_rent_items(lawd_cd, ym, all_items)
+                step += 1
+                time.sleep(0.1)
         status2.empty()
 
     status.empty()
 
-    # 진단 패널: 실제 받은 아파트명 목록 (필터 매칭 확인용)
+    # 진단 패널
     if sample_names:
-        matched = [n for n in sorted(sample_names)
-                   if any(kw in n for kw in TARGET_KEYWORDS)]
+        all_kws: list[str] = []
+        for lcd in selected_lawds:
+            all_kws.extend(REGION_KEYWORDS.get(lcd, []))
+        matched = ([n for n in sorted(sample_names) if any(kw in n for kw in all_kws)]
+                   if all_kws else sorted(sample_names))
         with st.expander(f"🔍 진단: 받은 단지명 {len(sample_names)}종 (필터 매칭 {len(matched)}종)", expanded=(total_saved == 0)):
             st.markdown("**키워드 매칭된 단지:**")
             st.write(matched if matched else "(매칭된 단지 없음 — 키워드 수정 필요)")

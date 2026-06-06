@@ -25,6 +25,12 @@ PALETTE = [
     "#CCB974","#64B5CD",
 ]
 
+LAWD_NAMES: dict[str, str] = {
+    "41220": "경기 평택시",
+    "43113": "충북 청주시 흥덕구",
+    "43114": "충북 청주시 청원구",
+}
+
 
 def _hex_to_rgba(hex_color: str, alpha: float = 0.12) -> str:
     h = hex_color.lstrip("#")
@@ -42,7 +48,7 @@ def load_data() -> pd.DataFrame:
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         df = pd.read_sql("""
-            SELECT apt_name, deal_year, deal_month, deal_day,
+            SELECT lawd_cd, apt_name, deal_year, deal_month, deal_day,
                    area, floor, price_man, cancel_yn
             FROM rtms_transactions
             ORDER BY deal_year, deal_month, deal_day
@@ -77,7 +83,7 @@ def load_jeonse() -> pd.DataFrame:
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         df = pd.read_sql("""
-            SELECT apt_name, deal_year, deal_month, deposit_man
+            SELECT lawd_cd, apt_name, deal_year, deal_month, deposit_man
             FROM rtms_jeonse
             ORDER BY deal_year, deal_month
         """, conn)
@@ -248,8 +254,27 @@ if not has_jeonse:
 
 # ── 사이드바 ───────────────────────────────────────────────────
 with st.sidebar:
+    # 지역 필터
+    avail_lawds = sorted(df_all["lawd_cd"].dropna().unique())
+    lawd_label_map = {LAWD_NAMES.get(c, c): c for c in avail_lawds}
+    if len(lawd_label_map) > 1:
+        st.markdown("**지역**")
+        sel_lawd_labels = st.multiselect(
+            "지역", list(lawd_label_map.keys()),
+            default=list(lawd_label_map.keys()),
+            key="rtms_lawd",
+            label_visibility="collapsed",
+        )
+        sel_lawd_codes = [lawd_label_map[l] for l in sel_lawd_labels]
+        st.divider()
+    else:
+        sel_lawd_codes = avail_lawds
+
+    # 단지 선택 (선택 지역만)
     st.markdown("**단지 선택**")
-    all_apts = sorted(df_all["apt_name"].unique())
+    df_filtered = df_all[df_all["lawd_cd"].isin(sel_lawd_codes)] if sel_lawd_codes else df_all.iloc[:0]
+
+    all_apts = sorted(df_filtered["apt_name"].unique())
     priority = [a for a in all_apts if _is_my_apt(a)]
     rest     = [a for a in all_apts if a not in priority]
     apt_list = priority + rest
@@ -300,7 +325,7 @@ def _filter(df, cname):
 # ── 실거주 단지 KPI ────────────────────────────────────────────
 _my = next((a for a in selected if _is_my_apt(a)), None)
 if _my:
-    dfc   = _filter(df_all, _my)
+    dfc   = _filter(df_filtered,_my)
     stats = monthly_stats(dfc) if not dfc.empty else pd.DataFrame()
     if len(stats) >= 2:
         cur     = stats["avg"].iloc[-1]
@@ -357,7 +382,7 @@ for row in rows_layout:
     cols = st.columns(len(row))
     for col, cname in zip(cols, row):
         with col:
-            dfc   = _filter(df_all, cname)
+            dfc   = _filter(df_filtered,cname)
             color = PALETTE[apt_list.index(cname) % len(PALETTE)]
 
             if dfc.empty:
@@ -397,7 +422,7 @@ st.subheader("단지별 최근 거래 요약")
 
 summary_rows = []
 for cname in selected:
-    dfc = _filter(df_all, cname)
+    dfc = _filter(df_filtered,cname)
     if dfc.empty:
         continue
     stats = monthly_stats(dfc)
