@@ -13,7 +13,7 @@ from datetime import date
 import requests
 import streamlit as st
 
-from db import push_rtms_to_sheet
+from db import push_rtms_to_sheet, restore_rtms_from_sheet, GAS_URL, GAS_TOKEN
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -389,9 +389,14 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
         with st.spinner("☁️ 구글시트에 자동 백업 중..."):
             t, j, err = push_rtms_to_sheet()
             if err:
-                st.caption(f"⚠️ 시트 백업 실패 (데이터는 로컬에 저장됨): {err}")
+                st.error(
+                    f"⚠️ 구글시트 백업 실패: {err}\n\n"
+                    "→ 스프레드시트에 **RTMS매매**, **RTMS전월세** 탭이 있는지 확인하세요. "
+                    "백업이 안 되면 앱이 잠든 뒤 데이터가 사라집니다. "
+                    "아래 '☁️ 데이터 영구 저장' 섹션에서 수동 백업을 다시 시도할 수 있습니다."
+                )
             else:
-                st.caption(f"☁️ 구글시트 백업 완료 — 매매 {t}건 / 전월세 {j}건")
+                st.success(f"☁️ 구글시트 백업 완료 — 매매 {t}건 / 전월세 {j}건 (앱 재시작 시 자동 복원됨)")
     elif not first_error:
         st.warning("저장된 건이 없습니다. (해당 기간 대상 단지 거래가 없었을 수 있음)")
 
@@ -426,3 +431,68 @@ try:
         st.caption("아직 수집된 실거래가가 없습니다. 위에서 수집을 시작하세요.")
 except Exception as e:
     st.caption(f"현황 조회 오류: {e}")
+
+# ── 데이터 영구 저장 (구글시트 백업/복원) ─────────────────────
+st.divider()
+st.subheader("☁️ 데이터 영구 저장 (구글시트)")
+st.caption(
+    "이 앱의 DB는 서버가 잠들면 사라지는 임시 저장소(`/tmp`)입니다. "
+    "**저장 흐름**: 수집 완료 → 구글시트 `RTMS매매`/`RTMS전월세` 탭에 자동 백업 → "
+    "앱이 다시 켜질 때 시트에서 자동 복원. "
+    "1달 주기로 수집만 하면 됩니다 — 백업·복원은 자동입니다. 아래는 수동 확인/실행용 버튼입니다."
+)
+
+# 현재 DB 건수
+def _db_counts() -> tuple[int, int]:
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        n_t = conn.execute("SELECT COUNT(*) FROM rtms_transactions").fetchone()[0]
+        n_j = conn.execute("SELECT COUNT(*) FROM rtms_jeonse").fetchone()[0]
+        conn.close()
+        return n_t, n_j
+    except Exception:
+        return 0, 0
+
+n_trade, n_jeonse = _db_counts()
+m1, m2 = st.columns(2)
+m1.metric("현재 DB — 매매", f"{n_trade:,}건")
+m2.metric("현재 DB — 전월세", f"{n_jeonse:,}건")
+
+b1, b2, b3 = st.columns(3)
+
+with b1:
+    if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=(n_trade == 0 and n_jeonse == 0)):
+        with st.spinner("구글시트로 백업 중..."):
+            t, j, err = push_rtms_to_sheet()
+        if err:
+            st.error(f"백업 실패: {err}\n\n시트에 RTMS매매/RTMS전월세 탭이 있는지 확인하세요.")
+        else:
+            st.success(f"백업 완료 — 매매 {t}건 / 전월세 {j}건")
+
+with b2:
+    if st.button("📥 시트에서 복원", use_container_width=True):
+        with st.spinner("구글시트에서 복원 중..."):
+            t, j = restore_rtms_from_sheet()
+        if t > 0 or j > 0:
+            st.success(f"복원 완료 — 매매 {t}건 / 전월세 {j}건 (중복은 자동 제외)")
+            st.cache_data.clear()
+        else:
+            st.warning("복원된 데이터가 없습니다. 시트가 비어있거나 이미 모두 DB에 있는 데이터입니다.")
+
+with b3:
+    if st.button("🔍 시트 저장 상태 확인", use_container_width=True):
+        with st.spinner("구글시트 조회 중..."):
+            for sheet in ("RTMS매매", "RTMS전월세"):
+                try:
+                    r = requests.get(
+                        GAS_URL,
+                        params={"token": GAS_TOKEN, "sheet_name": sheet},
+                        timeout=30,
+                    )
+                    rows = r.json().get("rows", []) if r.status_code == 200 else []
+                    if r.status_code == 200:
+                        st.info(f"**{sheet}** 탭: {len(rows):,}행 저장됨")
+                    else:
+                        st.error(f"**{sheet}** 탭: HTTP {r.status_code} — 탭이 없거나 GAS 설정 확인 필요")
+                except Exception as e:
+                    st.error(f"**{sheet}** 탭 조회 실패: {e}")
