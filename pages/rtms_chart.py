@@ -25,10 +25,11 @@ PALETTE = [
     "#CCB974","#64B5CD",
 ]
 
-LAWD_NAMES: dict[str, str] = {
-    "41220": "경기 평택시",
-    "43113": "충북 청주시 흥덕구",
-    "43114": "충북 청주시 청원구",
+# lawd_cd → (시, 구) 계층 매핑
+LAWD_HIER: dict[str, tuple[str, str | None]] = {
+    "41220": ("경기 평택시",  None),
+    "43113": ("충북 청주시", "흥덕구"),
+    "43114": ("충북 청주시", "청원구"),
 }
 
 
@@ -48,7 +49,7 @@ def load_data() -> pd.DataFrame:
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         df = pd.read_sql("""
-            SELECT lawd_cd, apt_name, deal_year, deal_month, deal_day,
+            SELECT lawd_cd, apt_name, dong, deal_year, deal_month, deal_day,
                    area, floor, price_man, cancel_yn
             FROM rtms_transactions
             ORDER BY deal_year, deal_month, deal_day
@@ -252,32 +253,66 @@ if df_all.empty:
 if not has_jeonse:
     st.info("💡 **전세가율**을 보려면 실거래가 수집 페이지에서 **전월세 데이터도 수집**하세요. 전세가율 60% 이상이면 가격 하락 방어력이 높습니다.", icon="ℹ️")
 
+def _pick_one(label: str, options: list[str], key: str) -> str:
+    """가로 선택 버튼 (segmented_control 지원 시 버튼형, 아니면 radio)"""
+    if hasattr(st, "segmented_control"):
+        sel = st.segmented_control(label, options, default=options[0], key=key)
+        return sel or options[0]
+    return st.radio(label, options, horizontal=True, key=key)
+
+
 # ── 사이드바 ───────────────────────────────────────────────────
 with st.sidebar:
-    # 지역 필터
+    # 지역 필터: 시 → 구 → 동(읍·면) 계층 선택
+    st.markdown("**지역 구분**")
     avail_lawds = sorted(df_all["lawd_cd"].dropna().unique())
-    lawd_label_map = {LAWD_NAMES.get(c, c): c for c in avail_lawds}
-    if len(lawd_label_map) > 1:
-        st.markdown("**지역**")
-        sel_lawd_labels = st.multiselect(
-            "지역", list(lawd_label_map.keys()),
-            default=list(lawd_label_map.keys()),
-            key="rtms_lawd",
-            label_visibility="collapsed",
-        )
-        sel_lawd_codes = [lawd_label_map[l] for l in sel_lawd_labels]
-        st.divider()
+
+    # 1) 시 선택
+    si_map: dict[str, list[str]] = {}   # 시명 → [lawd_cd]
+    for c in avail_lawds:
+        si, _gu = LAWD_HIER.get(c, (c, None))
+        si_map.setdefault(si, []).append(c)
+
+    if len(si_map) > 1:
+        sel_si = _pick_one("시", ["전체"] + list(si_map.keys()), "rtms_si")
     else:
-        sel_lawd_codes = avail_lawds
+        sel_si = list(si_map.keys())[0]
+        st.caption(f"시: {sel_si}")
+    sel_lawd_codes = avail_lawds if sel_si == "전체" else si_map[sel_si]
+
+    # 2) 구 선택 (선택한 시에 구가 2개 이상 있을 때만)
+    gu_map = {LAWD_HIER[c][1]: c for c in sel_lawd_codes
+              if LAWD_HIER.get(c, (None, None))[1]}
+    if sel_si != "전체" and len(gu_map) > 1:
+        sel_gu = _pick_one("구", ["전체"] + list(gu_map.keys()), "rtms_gu")
+        if sel_gu != "전체":
+            sel_lawd_codes = [gu_map[sel_gu]]
+
+    df_region = df_all[df_all["lawd_cd"].isin(sel_lawd_codes)]
+
+    # 3) 동(읍·면) 선택
+    dongs = sorted(df_region["dong"].dropna().unique())
+    if len(dongs) > 1:
+        # 시/구 변경으로 이전 선택 동이 사라진 경우 초기화
+        if st.session_state.get("rtms_dong") not in (["전체"] + dongs):
+            st.session_state.pop("rtms_dong", None)
+        sel_dong = st.selectbox("동(읍·면)", ["전체"] + dongs, key="rtms_dong")
+        if sel_dong != "전체":
+            df_region = df_region[df_region["dong"] == sel_dong]
+
+    df_filtered = df_region
+    st.divider()
 
     # 단지 선택 (선택 지역만)
     st.markdown("**단지 선택**")
-    df_filtered = df_all[df_all["lawd_cd"].isin(sel_lawd_codes)] if sel_lawd_codes else df_all.iloc[:0]
-
     all_apts = sorted(df_filtered["apt_name"].unique())
     priority = [a for a in all_apts if _is_my_apt(a)]
     rest     = [a for a in all_apts if a not in priority]
     apt_list = priority + rest
+
+    # 지역 변경으로 옵션에서 빠진 단지는 선택 목록에서 제거
+    if "rtms_sel" in st.session_state:
+        st.session_state.rtms_sel = [a for a in st.session_state.rtms_sel if a in apt_list]
 
     selected = st.multiselect(
         "단지", apt_list,
