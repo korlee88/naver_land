@@ -381,7 +381,7 @@ def read_history(uid: str = None) -> List[Dict[str, Any]]:
 # =========================
 # Auto Restore from Google Sheets
 # =========================
-GAS_URL   = "https://script.google.com/macros/s/AKfycbyeOnBIObdLpqfrNlERenUSdKMWXi30EuXYWpuCNbq_pb6Zg0u2HllVIl4RVaUFpGKw7w/exec"
+GAS_URL   = "https://script.google.com/macros/s/AKfycbw2yc21cRRiljgrpowNCE8zttwbGEY6uFKcd4dwK6sT7ntBCcbfzAj3AAnOfFxE8gC_JQ/exec"
 GAS_TOKEN = "MY_SECRET_TOKEN"
 
 def is_db_empty() -> bool:
