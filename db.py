@@ -533,22 +533,33 @@ def push_rtms_to_sheet() -> tuple[int, int, str]:
                 FROM rtms_jeonse ORDER BY deal_year, deal_month
             """).fetchall()]
 
-        def _push(rows, sheet_name):
+        def _push(rows, sheet_name) -> tuple[bool, str]:
             if not rows:
-                return True
-            resp = requests.post(
-                GAS_URL,
-                json={"token": GAS_TOKEN, "rows": rows, "sheet_name": sheet_name},
-                timeout=60,
-            )
-            return resp.status_code == 200
+                return True, ""
+            try:
+                resp = requests.post(
+                    GAS_URL,
+                    json={"token": GAS_TOKEN, "rows": rows, "sheet_name": sheet_name},
+                    timeout=120,
+                )
+            except requests.exceptions.RequestException as e:
+                return False, f"[{sheet_name}] 요청 실패: {e}"
+            if resp.status_code != 200:
+                return False, f"[{sheet_name}] HTTP {resp.status_code}: {resp.text[:200]}"
+            try:
+                data = resp.json()
+            except ValueError:
+                return False, f"[{sheet_name}] JSON 응답 아님: {resp.text[:200]}"
+            if isinstance(data, dict) and data.get("error"):
+                return False, f"[{sheet_name}] {data['error']}"
+            return True, ""
 
-        ok1 = _push(trade_rows,  RTMS_TRADE_SHEET)
-        ok2 = _push(jeonse_rows, RTMS_JEONSE_SHEET)
+        ok1, err1 = _push(trade_rows,  RTMS_TRADE_SHEET)
+        ok2, err2 = _push(jeonse_rows, RTMS_JEONSE_SHEET)
 
         if ok1 and ok2:
             return (len(trade_rows), len(jeonse_rows), "")
-        return (0, 0, "구글시트 응답 오류")
+        return (0, 0, " / ".join(e for e in (err1, err2) if e))
     except Exception as e:
         return (0, 0, str(e))
 
