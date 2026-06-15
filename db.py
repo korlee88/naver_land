@@ -549,7 +549,11 @@ def push_rtms_to_sheet() -> tuple[int, int, str]:
             try:
                 data = resp.json()
             except ValueError:
-                return False, f"[{sheet_name}] JSON 응답 아님: {resp.text[:200]}"
+                # GAS가 성공 시 JSON이 아닌 평문 "OK"를 반환하는 경우
+                text = resp.text.strip()
+                if text.upper() == "OK":
+                    return True, ""
+                return False, f"[{sheet_name}] 비JSON 응답: {resp.text[:200]}"
             if isinstance(data, dict) and data.get("error"):
                 return False, f"[{sheet_name}] {data['error']}"
             return True, ""
