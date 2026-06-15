@@ -150,6 +150,7 @@ graph_v2.py / graph_mobile.py
 - `db.restore_from_sheet(sheet_name)` — Google Apps Script 엔드포인트(`GAS_URL`)로 GET 요청 → 시트 데이터를 DB에 복원
 - 복원 시 원본 `seen_at`(날짜) 보존하여 히스토리 유지
 - `AUTO_RESTORE_SHEET` 환경변수가 있고 DB가 비어있을 때 `app.py`에서 자동 호출
+- GAS 스크립트 소스는 `gas/Code.gs`에 참고용으로 보관 (실제 배포본은 구글 스프레드시트의 Apps Script 에디터에 있음 — 수정 시 두 곳 모두 갱신)
 
 ### 환경변수
 
