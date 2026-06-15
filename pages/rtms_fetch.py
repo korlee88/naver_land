@@ -489,10 +489,21 @@ with b3:
                         params={"token": GAS_TOKEN, "sheet_name": sheet},
                         timeout=30,
                     )
-                    rows = r.json().get("rows", []) if r.status_code == 200 else []
-                    if r.status_code == 200:
+                    if r.status_code != 200:
+                        st.error(f"**{sheet}** 탭: HTTP {r.status_code} — {r.text[:200]}")
+                        continue
+                    try:
+                        data = r.json()
+                    except ValueError:
+                        st.error(f"**{sheet}** 탭: JSON 응답 아님 — {r.text[:200]}")
+                        continue
+                    if isinstance(data, dict) and data.get("error"):
+                        st.error(f"**{sheet}** 탭: {data['error']}")
+                        continue
+                    rows = data.get("rows", [])
+                    if rows:
                         st.info(f"**{sheet}** 탭: {len(rows):,}행 저장됨")
                     else:
-                        st.error(f"**{sheet}** 탭: HTTP {r.status_code} — 탭이 없거나 GAS 설정 확인 필요")
+                        st.warning(f"**{sheet}** 탭: 0행 (탭이 비어있거나 존재하지 않을 수 있음) — 응답: {str(data)[:200]}")
                 except Exception as e:
                     st.error(f"**{sheet}** 탭 조회 실패: {e}")
