@@ -343,6 +343,7 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
 
     # 전월세 수집
     rent_saved = 0
+    first_rent_error = None
     if also_rent and not first_error:
         status2 = st.empty()
         step = 0
@@ -354,7 +355,11 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                 page = 1
                 while True:
                     res = _fetch_rent_month(api_key, lawd_cd, ym, page)
-                    if res["error"] or not res["items"]:
+                    if res["error"]:
+                        if first_rent_error is None:
+                            first_rent_error = res["error"]
+                        break
+                    if not res["items"]:
                         break
                     all_items.extend(res["items"])
                     if len(all_items) >= res["totalCount"]:
@@ -399,6 +404,15 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                 st.success(f"☁️ 구글시트 백업 완료 — 매매 {t}건 / 전월세 {j}건 (앱 재시작 시 자동 복원됨)")
     elif not first_error:
         st.warning("저장된 건이 없습니다. (해당 기간 대상 단지 거래가 없었을 수 있음)")
+
+    if first_rent_error:
+        st.error(
+            f"⚠️ 전월세 API 오류: {first_rent_error}\n\n"
+            "→ data.go.kr 마이페이지에서 **'아파트 전월세 실거래가'** API를 별도로 활용신청했는지 확인하세요. "
+            "매매 API와 전월세 API는 **별도 승인**이 필요합니다."
+        )
+    elif also_rent and rent_saved == 0 and not first_error:
+        st.warning("전월세 저장된 건이 없습니다. (해당 기간 대상 단지 전월세 거래가 없었을 수 있음)")
 
     st.cache_data.clear()
 
