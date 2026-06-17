@@ -374,11 +374,15 @@ with st.sidebar:
     )
     st.divider()
     st.markdown("**평형 필터**")
-    all_areas = sorted(df_all["area_label"].unique())
-    sel_areas = st.multiselect(
-        "평형 (비우면 전체)", all_areas, default=[],
-        key="rtms_area", placeholder="전체",
+    area_min = float(df_all["area"].min())
+    area_max = float(df_all["area"].max())
+    lo, hi = st.slider(
+        "전용면적(㎡) 범위",
+        min_value=round(area_min, 1), max_value=round(area_max, 1),
+        value=(round(area_min, 1), round(area_max, 1)),
+        step=0.5, key="rtms_area_range",
     )
+    st.caption(f"≈ {lo/3.3058:.1f}평 ~ {hi/3.3058:.1f}평")
     st.divider()
     st.markdown("**기간**")
     period = st.selectbox(
@@ -403,8 +407,7 @@ elif period == "최근 2년":
 
 def _filter(df, cname):
     dfc = df[df["apt_name"] == cname].copy()
-    if sel_areas:
-        dfc = dfc[dfc["area_label"].isin(sel_areas)]
+    dfc = dfc[(dfc["area"] >= lo) & (dfc["area"] <= hi)]
     if cutoff is not None:
         dfc = dfc[dfc["ym"] >= cutoff]
     return dfc
