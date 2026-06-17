@@ -199,12 +199,15 @@ def _fetch_rent_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: 
             return {"error": root.findtext(".//resultMsg", "오류"), "totalCount": 0, "items": []}
         total = int(root.findtext(".//totalCount", "0") or 0)
         items = []
+        raw_sample = None
         for item in root.findall(".//item"):
             def g(*tags):
                 for tag in tags:
                     v = item.findtext(tag, "")
                     if v and v.strip(): return v.strip()
                 return ""
+            if raw_sample is None:
+                raw_sample = {child.tag: (child.text or "").strip() for child in item}
             items.append({
                 "apt_name":      g("아파트", "aptNm"),
                 "area":          g("전용면적", "excluUseAr"),
@@ -212,9 +215,9 @@ def _fetch_rent_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: 
                 "monthly_rent":  g("월세금액", "monthlyRent").replace(",", ""),
                 "contract_type": g("계약구분", "contractType"),
             })
-        return {"error": "", "totalCount": total, "items": items}
+        return {"error": "", "totalCount": total, "items": items, "raw_sample": raw_sample}
     except Exception as e:
-        return {"error": str(e), "totalCount": 0, "items": []}
+        return {"error": str(e), "totalCount": 0, "items": [], "raw_sample": None}
 
 
 def _save_rent_items(lawd_cd: str, ym: str, items: list) -> int:
@@ -343,9 +346,13 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
 
     # 전월세 수집
     rent_saved = 0
+    rent_total_seen = 0
     first_rent_error = None
+    first_rent_raw_sample = None
+    rent_sample_names: set[str] = set()
     if also_rent and not first_error:
         status2 = st.empty()
+        log2 = st.container()
         step = 0
         for lawd_cd in selected_lawds:
             region_name = next(k for k, v in LAWD_OPTIONS.items() if v == lawd_cd)
@@ -359,6 +366,8 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                         if first_rent_error is None:
                             first_rent_error = res["error"]
                         break
+                    if first_rent_raw_sample is None and res.get("raw_sample"):
+                        first_rent_raw_sample = res["raw_sample"]
                     if not res["items"]:
                         break
                     all_items.extend(res["items"])
@@ -366,7 +375,14 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                         break
                     page += 1
                     time.sleep(0.2)
-                rent_saved += _save_rent_items(lawd_cd, ym, all_items)
+                rent_total_seen += len(all_items)
+                for it in all_items:
+                    if len(rent_sample_names) < 300:
+                        rent_sample_names.add(it.get("apt_name", "") or "(빈값)")
+                saved2 = _save_rent_items(lawd_cd, ym, all_items)
+                rent_saved += saved2
+                with log2:
+                    st.caption(f"  [전월세][{region_name}] {ym} → 전체 {len(all_items)}건 중 {saved2}건 저장")
                 step += 1
                 time.sleep(0.1)
         status2.empty()
@@ -405,6 +421,27 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
     elif not first_error:
         st.warning("저장된 건이 없습니다. (해당 기간 대상 단지 거래가 없었을 수 있음)")
 
+    if also_rent and not first_error:
+        with st.expander(
+            f"🔍 전월세 진단: 조회 {rent_total_seen}건 / 저장 {rent_saved}건 / 단지 {len(rent_sample_names)}종",
+            expanded=(rent_saved == 0),
+        ):
+            if first_rent_raw_sample:
+                st.markdown("**API가 실제로 보낸 필드명/값 (원본 1건 샘플):**")
+                st.json(first_rent_raw_sample)
+            else:
+                st.write("API 응답에 item이 아예 없었습니다 (전체 기간·지역에서 조회된 전월세 거래 0건).")
+            if rent_sample_names:
+                all_kws = []
+                for lcd in selected_lawds:
+                    all_kws.extend(REGION_KEYWORDS.get(lcd, []))
+                matched = ([n for n in sorted(rent_sample_names) if any(kw in n for kw in all_kws)]
+                           if all_kws else sorted(rent_sample_names))
+                st.markdown(f"**키워드 매칭된 단지 ({len(matched)}종):**")
+                st.write(matched if matched else "(매칭된 단지 없음)")
+                st.markdown("**받은 전체 단지명 (가나다순):**")
+                st.write(sorted(rent_sample_names))
+
     if first_rent_error:
         st.error(
             f"⚠️ 전월세 API 오류: {first_rent_error}\n\n"
@@ -412,7 +449,16 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
             "매매 API와 전월세 API는 **별도 승인**이 필요합니다."
         )
     elif also_rent and rent_saved == 0 and not first_error:
-        st.warning("전월세 저장된 건이 없습니다. (해당 기간 대상 단지 전월세 거래가 없었을 수 있음)")
+        if rent_total_seen == 0:
+            st.warning(
+                "전월세 API 조회 결과가 전체 기간·지역에서 0건이었습니다 (오류 없이 정상 응답, 그러나 item 없음). "
+                "활용신청이 방금 승인된 경우 반영까지 시간이 걸릴 수 있습니다 — 위 진단 패널을 확인하세요."
+            )
+        else:
+            st.warning(
+                f"전월세 API에서 {rent_total_seen}건을 받았지만 저장된 건 0건입니다 — "
+                "필드명 불일치 또는 키워드 필터 문제일 수 있습니다. 위 진단 패널의 원본 필드 샘플을 확인하세요."
+            )
 
     st.cache_data.clear()
 
