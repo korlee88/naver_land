@@ -389,78 +389,110 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
 
     status.empty()
 
-    # 진단 패널
-    if sample_names:
-        all_kws: list[str] = []
-        for lcd in selected_lawds:
-            all_kws.extend(REGION_KEYWORDS.get(lcd, []))
-        matched = ([n for n in sorted(sample_names) if any(kw in n for kw in all_kws)]
-                   if all_kws else sorted(sample_names))
-        with st.expander(f"🔍 진단: 받은 단지명 {len(sample_names)}종 (필터 매칭 {len(matched)}종)", expanded=(total_saved == 0)):
-            st.markdown("**키워드 매칭된 단지:**")
-            st.write(matched if matched else "(매칭된 단지 없음 — 키워드 수정 필요)")
-            st.markdown("**받은 전체 단지명 (가나다순):**")
-            st.write(sorted(sample_names))
-    if first_error:
-        st.error(f"API 오류: {first_error}\n\n인증키가 올바른지, 활용신청이 승인됐는지 확인하세요.")
+    # 구글시트 자동 백업 (결과 화면에 표시하기 전에 먼저 실행)
+    backup_t, backup_j, backup_err = (0, 0, "")
     if total_saved > 0 or rent_saved > 0:
-        st.success(f"🎉 수집 완료 — 매매 **{total_saved}건** / 전월세 **{rent_saved}건** 저장")
-
-        # 구글시트 자동 백업
         with st.spinner("☁️ 구글시트에 자동 백업 중..."):
-            t, j, err = push_rtms_to_sheet()
-            if err:
+            backup_t, backup_j, backup_err = push_rtms_to_sheet()
+
+    # 결과를 session_state에 저장 — 버튼 클릭 직후 1회성 렌더링이 아니라
+    # 페이지를 다시 봐도(리런돼도) 계속 보이도록 함
+    st.session_state["rtms_last_result"] = {
+        "total_saved": total_saved,
+        "rent_saved": rent_saved,
+        "rent_total_seen": rent_total_seen,
+        "first_error": first_error,
+        "first_rent_error": first_rent_error,
+        "first_rent_raw_sample": first_rent_raw_sample,
+        "sample_names": sample_names,
+        "rent_sample_names": rent_sample_names,
+        "selected_lawds": selected_lawds,
+        "also_rent": also_rent,
+        "backup_t": backup_t,
+        "backup_j": backup_j,
+        "backup_err": backup_err,
+    }
+    st.cache_data.clear()
+    st.rerun()
+
+# ── 마지막 수집 결과 (session_state에 저장되어 페이지를 다시 봐도 유지됨) ──
+_res = st.session_state.get("rtms_last_result")
+if _res:
+    with st.container(border=True):
+        top = st.columns([5, 1])
+        top[0].markdown("### 📋 마지막 수집 결과")
+        if top[1].button("지우기", key="rtms_clear_result"):
+            del st.session_state["rtms_last_result"]
+            st.rerun()
+
+        if _res["sample_names"]:
+            all_kws: list[str] = []
+            for lcd in _res["selected_lawds"]:
+                all_kws.extend(REGION_KEYWORDS.get(lcd, []))
+            matched = ([n for n in sorted(_res["sample_names"]) if any(kw in n for kw in all_kws)]
+                       if all_kws else sorted(_res["sample_names"]))
+            with st.expander(
+                f"🔍 매매 진단: 받은 단지명 {len(_res['sample_names'])}종 (필터 매칭 {len(matched)}종)",
+                expanded=(_res["total_saved"] == 0),
+            ):
+                st.markdown("**키워드 매칭된 단지:**")
+                st.write(matched if matched else "(매칭된 단지 없음 — 키워드 수정 필요)")
+                st.markdown("**받은 전체 단지명 (가나다순):**")
+                st.write(sorted(_res["sample_names"]))
+
+        if _res["first_error"]:
+            st.error(f"API 오류: {_res['first_error']}\n\n인증키가 올바른지, 활용신청이 승인됐는지 확인하세요.")
+        if _res["total_saved"] > 0 or _res["rent_saved"] > 0:
+            st.success(f"🎉 수집 완료 — 매매 **{_res['total_saved']}건** / 전월세 **{_res['rent_saved']}건** 새로 저장 (이미 DB에 있던 건은 중복 제외)")
+            if _res["backup_err"]:
                 st.error(
-                    f"⚠️ 구글시트 백업 실패: {err}\n\n"
-                    "→ 스프레드시트에 **RTMS매매**, **RTMS전월세** 탭이 있는지 확인하세요. "
-                    "백업이 안 되면 앱이 잠든 뒤 데이터가 사라집니다. "
-                    "아래 '☁️ 데이터 영구 저장' 섹션에서 수동 백업을 다시 시도할 수 있습니다."
+                    f"⚠️ 구글시트 백업 실패: {_res['backup_err']}\n\n"
+                    "→ 스프레드시트에 **RTMS매매**, **RTMS전월세** 탭이 있는지 확인하세요."
                 )
             else:
-                st.success(f"☁️ 구글시트 백업 완료 — 매매 {t}건 / 전월세 {j}건 (앱 재시작 시 자동 복원됨)")
-    elif not first_error:
-        st.warning("저장된 건이 없습니다. (해당 기간 대상 단지 거래가 없었을 수 있음)")
+                st.success(f"☁️ 구글시트 백업 완료 — 매매 {_res['backup_t']}건 / 전월세 {_res['backup_j']}건 (앱 재시작 시 자동 복원됨)")
+        elif not _res["first_error"]:
+            st.warning("새로 저장된 건이 없습니다. (이미 DB에 있는 데이터이거나, 해당 기간 거래가 없었을 수 있음)")
 
-    if also_rent and not first_error:
-        with st.expander(
-            f"🔍 전월세 진단: 조회 {rent_total_seen}건 / 저장 {rent_saved}건 / 단지 {len(rent_sample_names)}종",
-            expanded=(rent_saved == 0),
-        ):
-            if first_rent_raw_sample:
-                st.markdown("**API가 실제로 보낸 필드명/값 (원본 1건 샘플):**")
-                st.json(first_rent_raw_sample)
+        if _res["also_rent"] and not _res["first_error"]:
+            with st.expander(
+                f"🔍 전월세 진단: 조회 {_res['rent_total_seen']}건 / 저장 {_res['rent_saved']}건 / 단지 {len(_res['rent_sample_names'])}종",
+                expanded=(_res["rent_saved"] == 0),
+            ):
+                if _res["first_rent_raw_sample"]:
+                    st.markdown("**API가 실제로 보낸 필드명/값 (원본 1건 샘플):**")
+                    st.json(_res["first_rent_raw_sample"])
+                else:
+                    st.write("API 응답에 item이 아예 없었습니다 (전체 기간·지역에서 조회된 전월세 거래 0건).")
+                if _res["rent_sample_names"]:
+                    all_kws = []
+                    for lcd in _res["selected_lawds"]:
+                        all_kws.extend(REGION_KEYWORDS.get(lcd, []))
+                    matched = ([n for n in sorted(_res["rent_sample_names"]) if any(kw in n for kw in all_kws)]
+                               if all_kws else sorted(_res["rent_sample_names"]))
+                    st.markdown(f"**키워드 매칭된 단지 ({len(matched)}종):**")
+                    st.write(matched if matched else "(매칭된 단지 없음)")
+                    st.markdown("**받은 전체 단지명 (가나다순):**")
+                    st.write(sorted(_res["rent_sample_names"]))
+
+        if _res["first_rent_error"]:
+            st.error(
+                f"⚠️ 전월세 API 오류: {_res['first_rent_error']}\n\n"
+                "→ data.go.kr 마이페이지에서 **'아파트 전월세 실거래가'** API를 별도로 활용신청했는지 확인하세요. "
+                "매매 API와 전월세 API는 **별도 승인**이 필요합니다."
+            )
+        elif _res["also_rent"] and _res["rent_saved"] == 0 and not _res["first_error"]:
+            if _res["rent_total_seen"] == 0:
+                st.warning(
+                    "전월세 API 조회 결과가 전체 기간·지역에서 0건이었습니다 (오류 없이 정상 응답, 그러나 item 없음). "
+                    "활용신청이 방금 승인된 경우 반영까지 시간이 걸릴 수 있습니다 — 위 진단 패널을 확인하세요."
+                )
             else:
-                st.write("API 응답에 item이 아예 없었습니다 (전체 기간·지역에서 조회된 전월세 거래 0건).")
-            if rent_sample_names:
-                all_kws = []
-                for lcd in selected_lawds:
-                    all_kws.extend(REGION_KEYWORDS.get(lcd, []))
-                matched = ([n for n in sorted(rent_sample_names) if any(kw in n for kw in all_kws)]
-                           if all_kws else sorted(rent_sample_names))
-                st.markdown(f"**키워드 매칭된 단지 ({len(matched)}종):**")
-                st.write(matched if matched else "(매칭된 단지 없음)")
-                st.markdown("**받은 전체 단지명 (가나다순):**")
-                st.write(sorted(rent_sample_names))
-
-    if first_rent_error:
-        st.error(
-            f"⚠️ 전월세 API 오류: {first_rent_error}\n\n"
-            "→ data.go.kr 마이페이지에서 **'아파트 전월세 실거래가'** API를 별도로 활용신청했는지 확인하세요. "
-            "매매 API와 전월세 API는 **별도 승인**이 필요합니다."
-        )
-    elif also_rent and rent_saved == 0 and not first_error:
-        if rent_total_seen == 0:
-            st.warning(
-                "전월세 API 조회 결과가 전체 기간·지역에서 0건이었습니다 (오류 없이 정상 응답, 그러나 item 없음). "
-                "활용신청이 방금 승인된 경우 반영까지 시간이 걸릴 수 있습니다 — 위 진단 패널을 확인하세요."
-            )
-        else:
-            st.warning(
-                f"전월세 API에서 {rent_total_seen}건을 받았지만 저장된 건 0건입니다 — "
-                "필드명 불일치 또는 키워드 필터 문제일 수 있습니다. 위 진단 패널의 원본 필드 샘플을 확인하세요."
-            )
-
-    st.cache_data.clear()
+                st.warning(
+                    f"전월세 API에서 {_res['rent_total_seen']}건을 받았지만 새로 저장된 건 0건입니다 — "
+                    "이미 DB에 있는 데이터일 수도 있고, 필드명 불일치/키워드 필터 문제일 수도 있습니다. "
+                    "위 진단 패널의 원본 필드 샘플을 확인하세요."
+                )
 
 # ── 수집 현황 ─────────────────────────────────────────────────
 st.divider()
