@@ -100,8 +100,8 @@ def load_jeonse() -> pd.DataFrame:
 
 
 # ── 월별 집계 ──────────────────────────────────────────────────
-def monthly_stats(df: pd.DataFrame) -> pd.DataFrame:
-    g = df.groupby("ym")["eok"]
+def monthly_stats(df: pd.DataFrame, col: str = "eok") -> pd.DataFrame:
+    g = df.groupby("ym")[col]
     stats = pd.DataFrame({
         "ym":    g.min().index,
         "min":   g.min().values,
@@ -136,13 +136,16 @@ def trend_signal(stats: pd.DataFrame) -> tuple[str, str, str]:
         return "➡️", f"보합 ({pct:+.1f}%)", "#f39c12"
 
 
-# ── 차트 (가격 + 거래량 서브플롯) ─────────────────────────────
+# ── 차트 (가격 + 거래량 + 전세 서브플롯) ───────────────────────
+JEONSE_COLOR = "#55A868"
+
+
 def make_chart(stats: pd.DataFrame, cname: str, color: str,
                jeonse_stats: pd.DataFrame | None = None) -> go.Figure:
     has_jeonse = jeonse_stats is not None and not jeonse_stats.empty
-    rows   = 3 if has_jeonse else 2
-    r_h    = [0.60, 0.15, 0.25] if has_jeonse else [0.72, 0.28]
-    titles = ["가격(억)", "", "전세가율(%)"] if has_jeonse else ["가격(억)", ""]
+    rows   = 4 if has_jeonse else 2
+    r_h    = [0.40, 0.12, 0.22, 0.26] if has_jeonse else [0.72, 0.28]
+    titles = ["가격(억)", "", "전세 시세(억)", "전세가율(%)"] if has_jeonse else ["가격(억)", ""]
 
     fig = make_subplots(
         rows=rows, cols=1,
@@ -201,10 +204,27 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str,
         hovertemplate="%{x|%Y-%m} %{y}건<extra></extra>",
     ), row=2, col=1)
 
-    # ── Row3: 전세가율 (데이터 있을 때만) ──
+    # ── Row3: 전세 시세 (보증금 최저~최고 범위 + 평균) ──
+    # ── Row4: 전세가율 ──
     if has_jeonse:
+        j_stats = monthly_stats(jeonse_stats, col="deposit_eok")
+
+        fig.add_trace(go.Scatter(
+            x=pd.concat([j_stats["ym"], j_stats["ym"][::-1]]),
+            y=pd.concat([j_stats["max"], j_stats["min"][::-1]]),
+            fill="toself", fillcolor=_hex_to_rgba(JEONSE_COLOR, 0.10),
+            line=dict(color="rgba(0,0,0,0)"), hoverinfo="skip",
+            showlegend=False, name="전세범위",
+        ), row=3, col=1)
+        fig.add_trace(go.Scatter(
+            x=j_stats["ym"], y=j_stats["avg"], name="전세평균",
+            line=dict(color=JEONSE_COLOR, width=2.5),
+            marker=dict(size=4),
+            hovertemplate="%{x|%Y-%m} 전세평균 %{y:.2f}억<extra></extra>",
+        ), row=3, col=1)
+
         merged = stats[["ym","avg"]].merge(
-            jeonse_stats.groupby("ym")["deposit_eok"].mean().reset_index(),
+            j_stats[["ym","avg"]].rename(columns={"avg": "deposit_eok"}),
             on="ym", how="inner"
         )
         merged["ratio"] = (merged["deposit_eok"] / merged["avg"] * 100).round(1)
@@ -213,14 +233,14 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str,
             line=dict(color="#8172B2", width=2),
             fill="toself", fillcolor=_hex_to_rgba("#8172B2", 0.08),
             hovertemplate="%{x|%Y-%m} 전세가율 %{y:.1f}%<extra></extra>",
-        ), row=3, col=1)
-        fig.add_hline(y=60, row=3,
+        ), row=4, col=1)
+        fig.add_hline(y=60, row=4,
             line=dict(color="#e74c3c", width=1, dash="dot"),
             annotation_text="60% 기준", annotation_position="right",
             annotation_font=dict(color="#e74c3c", size=10),
         )
 
-    base_h = 420 if not has_jeonse else 520
+    base_h = 420 if not has_jeonse else 620
     fig.update_layout(
         height=base_h,
         margin=dict(l=8, r=8, t=24, b=8),
@@ -233,7 +253,8 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str,
     fig.update_yaxes(ticksuffix="억", row=1)
     fig.update_yaxes(title_text="건", row=2, title_font=dict(size=9))
     if has_jeonse:
-        fig.update_yaxes(ticksuffix="%", row=3)
+        fig.update_yaxes(ticksuffix="억", row=3)
+        fig.update_yaxes(ticksuffix="%", row=4)
     return fig
 
 
@@ -464,7 +485,7 @@ for cname in selected:
     latest_ym = dfc["ym"].max()
     latest    = dfc[dfc["ym"] == latest_ym]
     emoji, trend_txt, _ = trend_signal(stats)
-    summary_rows.append({
+    row = {
         "단지명":    cname,
         "트렌드":    f"{emoji} {trend_txt}",
         "최근거래":  latest_ym.strftime("%Y.%m"),
@@ -472,7 +493,20 @@ for cname in selected:
         "평균(억)":  round(latest["eok"].mean(), 2),
         "최고(억)":  round(latest["eok"].max(), 2),
         "거래건수":  len(latest),
-    })
+    }
+    if has_jeonse:
+        j_sub = df_jeonse[df_jeonse["apt_name"] == cname]
+        if cutoff is not None:
+            j_sub = j_sub[j_sub["ym"] >= cutoff]
+        j_latest = j_sub[j_sub["ym"] == j_sub["ym"].max()] if not j_sub.empty else j_sub
+        if not j_latest.empty:
+            j_avg = j_latest["deposit_eok"].mean()
+            row["전세평균(억)"] = round(j_avg, 2)
+            row["전세가율(%)"]  = round(j_avg / row["평균(억)"] * 100, 1)
+        else:
+            row["전세평균(억)"] = None
+            row["전세가율(%)"]  = None
+    summary_rows.append(row)
 
 if summary_rows:
     summary_df = pd.DataFrame(summary_rows).sort_values("최저(억)")
