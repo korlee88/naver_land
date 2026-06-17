@@ -306,12 +306,14 @@ with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 
         icon="ℹ️",
     )
 
-def _pick_one(label: str, options: list[str], key: str) -> str:
-    """가로 선택 버튼 (segmented_control 지원 시 버튼형, 아니면 radio)"""
+def _pick_one(label: str, options: list[str], key: str, default: str | None = None) -> str:
+    """가로 선택 버튼 (segmented_control 지원 시 버튼형, 아니면 radio).
+    default는 위젯에 session_state가 아직 없는 최초 진입 시에만 적용됨."""
+    default = default if default in options else options[0]
     if hasattr(st, "segmented_control"):
-        sel = st.segmented_control(label, options, default=options[0], key=key)
-        return sel or options[0]
-    return st.radio(label, options, horizontal=True, key=key)
+        sel = st.segmented_control(label, options, default=default, key=key)
+        return sel or default
+    return st.radio(label, options, horizontal=True, key=key, index=options.index(default))
 
 
 # ── 사이드바 ───────────────────────────────────────────────────
@@ -327,7 +329,7 @@ with st.sidebar:
         si_map.setdefault(si, []).append(c)
 
     if len(si_map) > 1:
-        sel_si = _pick_one("시", ["전체"] + list(si_map.keys()), "rtms_si")
+        sel_si = _pick_one("시", ["전체"] + list(si_map.keys()), "rtms_si", default="경기 평택시")
     else:
         sel_si = list(si_map.keys())[0]
         st.caption(f"시: {sel_si}")
@@ -346,10 +348,15 @@ with st.sidebar:
     # 3) 동(읍·면) 선택
     dongs = sorted(df_region["dong"].dropna().unique())
     if len(dongs) > 1:
+        dong_options = ["전체"] + dongs
         # 시/구 변경으로 이전 선택 동이 사라진 경우 초기화
-        if st.session_state.get("rtms_dong") not in (["전체"] + dongs):
+        if st.session_state.get("rtms_dong") not in dong_options:
             st.session_state.pop("rtms_dong", None)
-        sel_dong = st.selectbox("동(읍·면)", ["전체"] + dongs, key="rtms_dong")
+        default_dong = "동삭동" if "동삭동" in dongs else "전체"
+        sel_dong = st.selectbox(
+            "동(읍·면)", dong_options, key="rtms_dong",
+            index=dong_options.index(default_dong),
+        )
         if sel_dong != "전체":
             df_region = df_region[df_region["dong"] == sel_dong]
 
@@ -367,19 +374,28 @@ with st.sidebar:
     if "rtms_sel" in st.session_state:
         st.session_state.rtms_sel = [a for a in st.session_state.rtms_sel if a in apt_list]
 
+    default_apts = [a for a in apt_list
+                     if "센트럴자이" in a and any(f"{n}단지" in a for n in (1, 2, 3))]
+    if not default_apts:
+        default_apts = apt_list[:min(4, len(apt_list))]
     selected = st.multiselect(
         "단지", apt_list,
-        default=apt_list[:min(4, len(apt_list))],
+        default=default_apts,
         key="rtms_sel",
     )
     st.divider()
     st.markdown("**평형 필터**")
     area_min = float(df_all["area"].min())
     area_max = float(df_all["area"].max())
+    # 최초 진입 시 기본값: 20평형대(전용 59㎡대, 45~63㎡)
+    default_lo = max(round(area_min, 1), 45.0)
+    default_hi = min(round(area_max, 1), 63.0)
+    if default_lo >= default_hi:
+        default_lo, default_hi = round(area_min, 1), round(area_max, 1)
     lo, hi = st.slider(
         "전용면적(㎡) 범위",
         min_value=round(area_min, 1), max_value=round(area_max, 1),
-        value=(round(area_min, 1), round(area_max, 1)),
+        value=(default_lo, default_hi),
         step=0.5, key="rtms_area_range",
     )
     st.caption(f"≈ {lo/3.3058:.1f}평 ~ {hi/3.3058:.1f}평")
