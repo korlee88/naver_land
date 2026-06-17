@@ -385,20 +385,23 @@ with st.sidebar:
     )
     st.divider()
     st.markdown("**평형 필터**")
-    area_min = float(df_all["area"].min())
+    PYEONG = 3.3058
     area_max = float(df_all["area"].max())
-    # 최초 진입 시 기본값: 20평형대(전용 59㎡대, 45~63㎡)
-    default_lo = max(round(area_min, 1), 45.0)
-    default_hi = min(round(area_max, 1), 63.0)
-    if default_lo >= default_hi:
-        default_lo, default_hi = round(area_min, 1), round(area_max, 1)
-    lo, hi = st.slider(
-        "전용면적(㎡) 범위",
-        min_value=round(area_min, 1), max_value=round(area_max, 1),
-        value=(default_lo, default_hi),
-        step=0.5, key="rtms_area_range",
-    )
-    st.caption(f"≈ {lo/3.3058:.1f}평 ~ {hi/3.3058:.1f}평")
+    # 5평 단위 버튼. 35평 이상은 상한 없이 모두 포함.
+    AREA_BUCKETS = {
+        "전체":      (0.0, area_max + 1),
+        "10평대":    (10 * PYEONG, 15 * PYEONG),
+        "15평대":    (15 * PYEONG, 20 * PYEONG),
+        "20평대":    (20 * PYEONG, 25 * PYEONG),
+        "25평대":    (25 * PYEONG, 30 * PYEONG),
+        "30평대":    (30 * PYEONG, 35 * PYEONG),
+        "35평 이상": (35 * PYEONG, area_max + 1),
+    }
+    sel_area = _pick_one("평형", list(AREA_BUCKETS.keys()), "rtms_area_bucket", default="15평대")
+    lo, hi = AREA_BUCKETS[sel_area]
+    hi_label = "이상" if sel_area == "35평 이상" else f"{hi/PYEONG:.0f}평"
+    lo_label = "" if sel_area == "전체" else f"{lo/PYEONG:.0f}평 ~ "
+    st.caption(f"≈ {lo_label}{hi_label} ({round(lo)}㎡ ~ {'' if sel_area in ('전체','35평 이상') else f'{round(hi)}㎡'})")
     st.divider()
     st.markdown("**기간**")
     period = st.selectbox(
@@ -423,7 +426,7 @@ elif period == "최근 2년":
 
 def _filter(df, cname):
     dfc = df[df["apt_name"] == cname].copy()
-    dfc = dfc[(dfc["area"] >= lo) & (dfc["area"] <= hi)]
+    dfc = dfc[(dfc["area"] >= lo) & (dfc["area"] < hi)]
     if cutoff is not None:
         dfc = dfc[dfc["ym"] >= cutoff]
     return dfc
