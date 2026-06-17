@@ -80,15 +80,17 @@ def load_data() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_jeonse() -> pd.DataFrame:
-    """전월세 데이터 (있으면 로드)"""
+    """전월세 데이터 전체 (전세+월세, monthly_rent 포함하여 로드)"""
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         df = pd.read_sql("""
-            SELECT lawd_cd, apt_name, deal_year, deal_month, deposit_man
+            SELECT lawd_cd, apt_name, deal_year, deal_month, deposit_man, monthly_rent
             FROM rtms_jeonse
             ORDER BY deal_year, deal_month
         """, conn)
         conn.close()
+        if df.empty:
+            return df
         df["deposit_eok"] = df["deposit_man"] / 10000
         df["ym"] = pd.to_datetime(
             df["deal_year"].astype(str) + df["deal_month"].astype(str).str.zfill(2),
@@ -262,7 +264,12 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str,
 # 페이지
 # ══════════════════════════════════════════════════════════════
 df_all = load_data()
-df_jeonse = load_jeonse()
+df_rent_all = load_jeonse()
+# 전세가·전세가율 비교는 "보증금만 있는" 순수 전세 거래만 사용한다.
+# monthly_rent > 0 인 행은 월세(반전세 포함)로, 보증금 성격이 달라 그대로 섞으면
+# 전세 시세가 실제보다 낮게/들쭉날쭉하게 나옴 (사용자 보고 이슈).
+df_jeonse = (df_rent_all[df_rent_all["monthly_rent"].fillna(0) == 0].copy()
+             if not df_rent_all.empty else df_rent_all)
 has_jeonse = not df_jeonse.empty
 
 st.title("실거래가 가격 추이")
@@ -278,7 +285,14 @@ if not has_jeonse:
 with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 확인", expanded=False):
     c1, c2 = st.columns(2)
     c1.metric("매매 총 건수", f"{len(df_all):,}건")
-    c2.metric("전월세 총 건수", f"{len(df_jeonse):,}건")
+    c2.metric("전월세 총 건수", f"{len(df_rent_all):,}건")
+    if not df_rent_all.empty:
+        n_jeonse = int((df_rent_all["monthly_rent"].fillna(0) == 0).sum())
+        n_wolse  = len(df_rent_all) - n_jeonse
+        st.caption(
+            f"└ 전세(보증금만) {n_jeonse:,}건 · 월세(보증금+월세) {n_wolse:,}건 "
+            "— 전세 시세·전세가율 차트는 **전세 거래만** 사용합니다 (월세는 보증금 성격이 달라 제외)."
+        )
 
     def _lawd_label(code: str) -> str:
         si, gu = LAWD_HIER.get(str(code), (str(code), None))
@@ -296,7 +310,7 @@ with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 
     st.bar_chart(by_ym, height=180)
     st.caption(
         f"수집 월 범위: {by_ym.index.min()} ~ {by_ym.index.max()} ({by_ym.size}개월)  |  "
-        f"단지 수: 매매 {df_all['apt_name'].nunique()}개, 전월세 {df_jeonse['apt_name'].nunique() if has_jeonse else 0}개"
+        f"단지 수: 매매 {df_all['apt_name'].nunique()}개, 전세 {df_jeonse['apt_name'].nunique() if has_jeonse else 0}개"
     )
     st.info(
         "참고: ① 평택시는 관심 단지(센트럴자이·더샵지제역 등) **키워드 필터**가 걸려 있어 일부 단지만 저장됩니다 "
