@@ -274,6 +274,38 @@ if df_all.empty:
 if not has_jeonse:
     st.info("💡 **전세가율**을 보려면 실거래가 수집 페이지에서 **전월세 데이터도 수집**하세요. 전세가율 60% 이상이면 가격 하락 방어력이 높습니다.", icon="ℹ️")
 
+# ── 데이터 진단 (실제 수집량 점검) ─────────────────────────────
+with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 확인", expanded=False):
+    c1, c2 = st.columns(2)
+    c1.metric("매매 총 건수", f"{len(df_all):,}건")
+    c2.metric("전월세 총 건수", f"{len(df_jeonse):,}건")
+
+    def _lawd_label(code: str) -> str:
+        si, gu = LAWD_HIER.get(str(code), (str(code), None))
+        return f"{si} {gu}" if gu else si
+
+    st.markdown("**지역별 매매 건수**")
+    reg = (df_all.groupby("lawd_cd").size().reset_index(name="건수"))
+    reg["지역"] = reg["lawd_cd"].apply(_lawd_label)
+    st.dataframe(reg[["지역", "건수"]].sort_values("건수", ascending=False),
+                 use_container_width=True, hide_index=True)
+
+    st.markdown("**월별 매매 건수** (수집 기간 전체)")
+    by_ym = (df_all.assign(월=df_all["ym"].dt.strftime("%Y-%m"))
+             .groupby("월").size())
+    st.bar_chart(by_ym, height=180)
+    st.caption(
+        f"수집 월 범위: {by_ym.index.min()} ~ {by_ym.index.max()} ({by_ym.size}개월)  |  "
+        f"단지 수: 매매 {df_all['apt_name'].nunique()}개, 전월세 {df_jeonse['apt_name'].nunique() if has_jeonse else 0}개"
+    )
+    st.info(
+        "참고: ① 평택시는 관심 단지(센트럴자이·더샵지제역 등) **키워드 필터**가 걸려 있어 일부 단지만 저장됩니다 "
+        "(전체를 원하면 수집 페이지의 `REGION_KEYWORDS` 평택 항목을 비우면 됩니다). "
+        "② 국토부 신고기한(30일) 때문에 **최근 1~2개월은 거래가 적게 보이는 게 정상**입니다. "
+        "③ 차트가 비어 보이면 사이드바의 **기간을 '전체'**로, **지역/단지 선택**을 넓혀보세요.",
+        icon="ℹ️",
+    )
+
 def _pick_one(label: str, options: list[str], key: str) -> str:
     """가로 선택 버튼 (segmented_control 지원 시 버튼형, 아니면 radio)"""
     if hasattr(st, "segmented_control"):
@@ -351,7 +383,7 @@ with st.sidebar:
     st.markdown("**기간**")
     period = st.selectbox(
         "", ["전체", "최근 6개월", "최근 1년", "최근 2년"],
-        index=2, key="rtms_period", label_visibility="collapsed",
+        index=0, key="rtms_period", label_visibility="collapsed",
     )
 
 if not selected:
