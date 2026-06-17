@@ -158,6 +158,7 @@ graph_v2.py / graph_mobile.py
 |---|---|---|
 | `DB_PATH` | `/tmp/naver_land.db` | SQLite 파일 경로 |
 | `AUTO_RESTORE_SHEET` | (없음) | 콜드 스타트 시 복원할 Google Sheets 시트명 |
+| `RTMS_API_KEY` | (없음) | 국토부 실거래가 일반 인증키. **매매·전월세 공통 1개** (계정 단위 키). Streamlit Secrets에 넣으면 `pages/rtms_fetch.py`가 `st.secrets`→환경변수 순으로 읽어 입력칸에 자동 채움 |
 
 ### git push 주의사항
 

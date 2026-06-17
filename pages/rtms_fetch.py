@@ -262,15 +262,37 @@ st.title("국토부 실거래가 자동 수집")
 st.caption("실제 거래 완료된 가격 (국토교통부 공식). 네이버 호가보다 정확하며, 클라우드에서 바로 수집됩니다.")
 
 # API 키 입력
-default_key = st.session_state.get(_KEY_SS, os.environ.get("RTMS_API_KEY", ""))
+# 우선순위: 사용자가 이번 세션에 입력한 값 > Streamlit Secrets > 환경변수
+def _saved_api_key() -> tuple[str, str]:
+    """반환: (키값, 출처설명). 저장된 키가 없으면 ('', '')"""
+    if st.session_state.get(_KEY_SS):
+        return st.session_state[_KEY_SS], "세션 입력"
+    try:
+        if "RTMS_API_KEY" in st.secrets:
+            return str(st.secrets["RTMS_API_KEY"]), "Streamlit Secrets (영구 저장)"
+    except Exception:
+        pass
+    env_key = os.environ.get("RTMS_API_KEY", "")
+    if env_key:
+        return env_key, "환경변수"
+    return "", ""
+
+_pre_key, _key_src = _saved_api_key()
 api_key = st.text_input(
-    "공공데이터포털 API 인증키",
-    value=default_key,
+    "공공데이터포털 API 인증키 (매매·전월세 공통 — 일반 인증키 1개)",
+    value=_pre_key,
     type="password",
-    help="data.go.kr 마이페이지 → 일반 인증키(Decoding)",
+    help="data.go.kr 마이페이지 → 일반 인증키(Decoding). "
+         "매매·전월세 API는 같은 키 하나를 공유합니다. "
+         "앱 재시작 후에도 키를 유지하려면 Streamlit Cloud → Settings → Secrets 에 "
+         "RTMS_API_KEY = \"키값\" 으로 저장하세요.",
 )
 if api_key:
     st.session_state[_KEY_SS] = api_key
+if _key_src == "Streamlit Secrets (영구 저장)":
+    st.caption("🔒 저장된 인증키를 Streamlit Secrets에서 불러왔습니다 (앱 재시작 후에도 유지됨).")
+elif _key_src == "환경변수":
+    st.caption("🔑 환경변수(RTMS_API_KEY)에 저장된 인증키를 불러왔습니다.")
 
 col1, col2 = st.columns(2)
 with col1:
