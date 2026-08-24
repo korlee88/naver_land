@@ -197,7 +197,10 @@ def make_chart(
         tickfont=dict(size=10), fixedrange=True,
     )
     fig.update_yaxes(tickfont=dict(size=10), showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-    fig.update_yaxes(ticksuffix="억", row=1)
+    # 가격 행은 이 지역 자체의 최저~최고에 딱 맞춘 여백만 둬서 등락이 눌려 보이지 않게 함
+    p_lo, p_hi = float(stats["min"].min()), float(stats["max"].max())
+    pad = max((p_hi - p_lo) * 0.10, 0.03)
+    fig.update_yaxes(ticksuffix="억", range=[p_lo - pad, p_hi + pad], row=1)
     fig.update_yaxes(title_text="건", row=2, title_font=dict(size=9))
     return fig
 
@@ -311,6 +314,12 @@ def _filter_jeonse(lawd_codes: list[str]) -> pd.DataFrame:
 
 # ── 종합 비교 차트 (매매 평균가 라인 오버레이) ─────────────────
 st.subheader("종합 비교 — 매매 평균가 추이")
+compare_mode = _pick_one(
+    "표시 방식", ["변동률(%)", "절대가격(억)"], "area_compare_mode", default="변동률(%)",
+)
+if compare_mode == "변동률(%)":
+    st.caption("ℹ️ 지역마다 가격대가 달라 절대가격으로 겹쳐 보면 등락이 눌려 보입니다 — 각 지역의 첫 달을 100으로 놓고 변동률로 비교합니다.")
+
 fig_overlay = go.Figure()
 region_stats: dict[str, pd.DataFrame] = {}
 for i, region in enumerate(selected_regions):
@@ -320,10 +329,17 @@ for i, region in enumerate(selected_regions):
     stats = monthly_stats(dfc)
     region_stats[region] = stats
     color = PALETTE[i % len(PALETTE)]
+    if compare_mode == "변동률(%)":
+        base = stats["avg"].iloc[0]
+        y_vals = stats["avg"] / base * 100 if base else stats["avg"]
+        hover = f"{region}<br>" + "%{x|%Y-%m} %{y:.1f} (시작월=100)<extra></extra>"
+    else:
+        y_vals = stats["avg"]
+        hover = f"{region}<br>" + "%{x|%Y-%m} 평균 %{y:.2f}억<extra></extra>"
     fig_overlay.add_trace(go.Scatter(
-        x=stats["ym"], y=stats["avg"], name=region,
+        x=stats["ym"], y=y_vals, name=region,
         line=dict(color=color, width=2.5), marker=dict(size=5),
-        hovertemplate=f"{region}<br>" + "%{x|%Y-%m} 평균 %{y:.2f}억<extra></extra>",
+        hovertemplate=hover,
     ))
 fig_overlay.update_layout(
     height=380,
@@ -333,7 +349,11 @@ fig_overlay.update_layout(
     hovermode="x unified",
 )
 fig_overlay.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
+if compare_mode == "변동률(%)":
+    fig_overlay.add_hline(y=100, line=dict(color="#999", width=1, dash="dot"))
+    fig_overlay.update_yaxes(title_text="변동률 (시작월=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
+else:
+    fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False})
 
 st.divider()
