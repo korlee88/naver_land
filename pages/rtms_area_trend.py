@@ -2,9 +2,11 @@
 pages/rtms_area_trend.py — 국토부 실거래가 기반 구/동 단위 가격동향 비교
 
 단지별이 아니라 구/동(행정동) 단위로 실거래를 묶어 여러 지역을 나란히 비교한다.
-데이터 출처는 구글시트에서 자동 복원되는 rtms_transactions 테이블 하나뿐이며
+데이터 출처는 구글시트에서 자동 복원되는 rtms_transactions / rtms_jeonse 테이블뿐이며
 (pages/rtms_fetch.py의 국토부 API 수집 → 구글시트 백업 → app.py 자동복원 흐름),
 이 페이지 자체는 API를 호출하지 않는다.
+
+주의: rtms_jeonse에는 행정동(dong) 컬럼이 없어 시/구(lawd_cd) 단위로만 구분 가능하다.
 """
 import os
 import sqlite3
@@ -26,6 +28,7 @@ PALETTE = [
     "#8172B2", "#937860", "#DA8BC3", "#8C8C8C",
     "#CCB974", "#64B5CD",
 ]
+JEONSE_COLOR = "#55A868"
 
 # lawd_cd → (시, 구) 계층 매핑 — pages/rtms_chart.py와 동일
 LAWD_HIER: dict[str, tuple[str, str | None]] = {
@@ -46,9 +49,10 @@ def _lawd_label(code: str) -> str:
     return f"{si} {gu}" if gu else si
 
 
-# ── 데이터 로드 (구글시트 → 자동복원된 로컬 rtms_transactions) ──
+# ── 데이터 로드 (구글시트 → 자동복원된 로컬 DB) ────────────────
 @st.cache_data(ttl=300)
 def load_data() -> pd.DataFrame:
+    """매매 실거래 (rtms_transactions)"""
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         df = pd.read_sql("""
@@ -71,8 +75,34 @@ def load_data() -> pd.DataFrame:
     return df
 
 
-def monthly_stats(df: pd.DataFrame) -> pd.DataFrame:
-    g = df.groupby("ym")["eok"]
+@st.cache_data(ttl=300)
+def load_jeonse() -> pd.DataFrame:
+    """전월세 (rtms_jeonse) 중 순수 전세(월세 없는 보증금만) 거래만. dong 컬럼이 없어 시/구 단위만 가능."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        df = pd.read_sql("""
+            SELECT lawd_cd, apt_name, deal_year, deal_month, area, deposit_man, monthly_rent
+            FROM rtms_jeonse
+            ORDER BY deal_year, deal_month
+        """, conn)
+        conn.close()
+    except Exception:
+        return pd.DataFrame()
+    if df.empty:
+        return df
+    df = df[df["monthly_rent"].fillna(0) == 0].copy()
+    if df.empty:
+        return df
+    df["deposit_eok"] = df["deposit_man"] / 10000
+    df["ym"] = pd.to_datetime(
+        df["deal_year"].astype(str) + df["deal_month"].astype(str).str.zfill(2),
+        format="%Y%m"
+    )
+    return df
+
+
+def monthly_stats(df: pd.DataFrame, col: str = "eok") -> pd.DataFrame:
+    g = df.groupby("ym")[col]
     stats = pd.DataFrame({
         "ym":    g.min().index,
         "min":   g.min().values,
@@ -102,53 +132,71 @@ def trend_signal(stats: pd.DataFrame) -> tuple[str, str, str]:
         return "➡️", f"보합 ({pct:+.1f}%)", "#f39c12"
 
 
-def make_chart(stats: pd.DataFrame, color: str) -> go.Figure:
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        row_heights=[0.72, 0.28], vertical_spacing=0.04,
-        subplot_titles=["가격(억)", ""],
-    )
+def _price_band_traces(fig, stats, color, row, name_min="최저", name_avg="평균"):
     fig.add_trace(go.Scatter(
         x=pd.concat([stats["ym"], stats["ym"][::-1]]),
         y=pd.concat([stats["max"], stats["min"][::-1]]),
         fill="toself", fillcolor=_hex_to_rgba(color, 0.10),
         line=dict(color="rgba(0,0,0,0)"), hoverinfo="skip",
         showlegend=False, name="범위",
-    ), row=1, col=1)
+    ), row=row, col=1)
     fig.add_trace(go.Scatter(
-        x=stats["ym"], y=stats["min"], name="최저",
+        x=stats["ym"], y=stats["min"], name=name_min,
         line=dict(color=color, width=1.5, dash="dot"),
-        hovertemplate="%{x|%Y-%m} 최저 %{y:.2f}억<extra></extra>",
-    ), row=1, col=1)
+        hovertemplate="%{x|%Y-%m} " + name_min + " %{y:.2f}억<extra></extra>",
+    ), row=row, col=1)
     fig.add_trace(go.Scatter(
-        x=stats["ym"], y=stats["avg"], name="평균",
+        x=stats["ym"], y=stats["avg"], name=name_avg,
         line=dict(color=color, width=2.5), marker=dict(size=5),
-        hovertemplate="%{x|%Y-%m} 평균 %{y:.2f}억<extra></extra>",
-    ), row=1, col=1)
+        hovertemplate="%{x|%Y-%m} " + name_avg + " %{y:.2f}억<extra></extra>",
+    ), row=row, col=1)
     if stats["ma3"].notna().sum() >= 2:
         fig.add_trace(go.Scatter(
             x=stats["ym"], y=stats["ma3"], name="3개월 MA",
             line=dict(color="#888", width=1.5, dash="dash"),
             hovertemplate="%{x|%Y-%m} MA3 %{y:.2f}억<extra></extra>",
-        ), row=1, col=1)
+        ), row=row, col=1)
+
+
+def _volume_bar_trace(fig, stats, color, row, name="거래건수"):
     vol_colors = [
         _hex_to_rgba(color, 0.8) if c >= stats["count"].median() else _hex_to_rgba(color, 0.4)
         for c in stats["count"]
     ]
     fig.add_trace(go.Bar(
-        x=stats["ym"], y=stats["count"], name="거래건수",
+        x=stats["ym"], y=stats["count"], name=name,
         marker_color=vol_colors,
         hovertemplate="%{x|%Y-%m} %{y}건<extra></extra>",
-    ), row=2, col=1)
+    ), row=row, col=1)
+
+
+def make_chart(
+    stats: pd.DataFrame, color: str, *,
+    price_title: str = "가격(억)", vol_name: str = "거래건수",
+    min_label: str = "최저", avg_label: str = "평균",
+) -> go.Figure:
+    """가격(밴드+평균+3개월MA)/거래량 2단 차트 1개. 확대·이동 불가(고정형).
+    매매·전세를 하나의 차트에 욱여넣으면 범례가 제목과 겹쳐 매매용/전세용을 각각 별도로 그린다."""
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.7, 0.3], vertical_spacing=0.06,
+        subplot_titles=[price_title, ""],
+    )
+    _price_band_traces(fig, stats, color, row=1, name_min=min_label, name_avg=avg_label)
+    _volume_bar_trace(fig, stats, color, row=2, name=vol_name)
+
     fig.update_layout(
-        height=340,
-        margin=dict(l=8, r=8, t=24, b=8),
+        height=380,
+        margin=dict(l=8, r=8, t=32, b=8),
         plot_bgcolor="white", paper_bgcolor="white",
-        legend=dict(orientation="h", x=0, y=1.08, font=dict(size=10)),
+        legend=dict(orientation="h", x=0, y=1.14, font=dict(size=10)),
         hovermode="x unified",
     )
-    fig.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=10))
-    fig.update_yaxes(tickfont=dict(size=10), showgrid=True, gridcolor="#f0f0f0")
+    fig.update_xaxes(
+        tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0",
+        tickfont=dict(size=10), fixedrange=True,
+    )
+    fig.update_yaxes(tickfont=dict(size=10), showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
     fig.update_yaxes(ticksuffix="억", row=1)
     fig.update_yaxes(title_text="건", row=2, title_font=dict(size=9))
     return fig
@@ -167,7 +215,7 @@ def _pick_one(label: str, options: list[str], key: str, default: str | None = No
 # ══════════════════════════════════════════════════════════════
 st.title("지역별 가격동향 비교")
 st.caption(
-    "국토부 실거래가(매매) 기준 — 단지 하나가 아니라 **구/동 전체를 합친** 시세 추이를 "
+    "국토부 실거래가 기준 — 단지 하나가 아니라 **구/동 전체를 합친** 매매·전세 시세와 거래량 추이를 "
     "여러 지역 나란히 비교합니다. 단지별 상세 비교는 **가격 추이** 메뉴를 이용하세요."
 )
 
@@ -176,10 +224,14 @@ if df_all.empty:
     st.warning("수집된 실거래가 데이터가 없습니다. 먼저 **🏛️ 실거래가 수집** 메뉴에서 수집을 실행해주세요.")
     st.stop()
 
+df_jeonse_all = load_jeonse()
+
 # ── 사이드바 ───────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("**비교 단위**")
     unit_level = _pick_one("단위", ["구/시 단위", "동 단위"], "area_unit_level", default="동 단위")
+    if unit_level == "동 단위" and not df_jeonse_all.empty:
+        st.caption("ℹ️ 전세는 행정동 구분이 없어 같은 시/구 전체 기준으로 표시됩니다.")
 
     df_all["region_gu"] = df_all["lawd_cd"].apply(_lawd_label)
     if unit_level == "구/시 단위":
@@ -247,8 +299,18 @@ def _filter(region_key: str) -> pd.DataFrame:
     return dfc
 
 
-# ── 종합 비교 차트 (평균가 라인 오버레이) ─────────────────────
-st.subheader("종합 비교 — 평균가 추이")
+def _filter_jeonse(lawd_codes: list[str]) -> pd.DataFrame:
+    if df_jeonse_all.empty:
+        return df_jeonse_all
+    jdf = df_jeonse_all[df_jeonse_all["lawd_cd"].isin(lawd_codes)].copy()
+    jdf = jdf[(jdf["area"] >= lo) & (jdf["area"] < hi)]
+    if cutoff is not None:
+        jdf = jdf[jdf["ym"] >= cutoff]
+    return jdf
+
+
+# ── 종합 비교 차트 (매매 평균가 라인 오버레이) ─────────────────
+st.subheader("종합 비교 — 매매 평균가 추이")
 fig_overlay = go.Figure()
 region_stats: dict[str, pd.DataFrame] = {}
 for i, region in enumerate(selected_regions):
@@ -264,19 +326,19 @@ for i, region in enumerate(selected_regions):
         hovertemplate=f"{region}<br>" + "%{x|%Y-%m} 평균 %{y:.2f}억<extra></extra>",
     ))
 fig_overlay.update_layout(
-    height=340,
+    height=380,
     margin=dict(l=8, r=8, t=8, b=8),
     plot_bgcolor="white", paper_bgcolor="white",
     legend=dict(orientation="h", x=0, y=1.1, font=dict(size=11)),
     hovermode="x unified",
 )
-fig_overlay.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0")
-fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0")
+fig_overlay.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
+fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False})
 
 st.divider()
 
-# ── 지역별 상세 카드 (2열) ────────────────────────────────────
+# ── 지역별 상세 카드 (2열 · 매매+전세+거래량) ──────────────────
 st.subheader("지역별 상세")
 COLS = 2
 rows_layout = [selected_regions[i:i + COLS] for i in range(0, len(selected_regions), COLS)]
@@ -295,17 +357,35 @@ for row in rows_layout:
             latest = stats.iloc[-1]
             emoji, trend_txt, trend_color = trend_signal(stats)
             n_complex = dfc["apt_name"].nunique()
+
+            lawd_codes = dfc["lawd_cd"].unique().tolist()
+            jdf = _filter_jeonse(lawd_codes)
+            jeonse_stats = monthly_stats(jdf, col="deposit_eok") if not jdf.empty else None
+
             st.markdown(
                 f"**{region}** &nbsp; "
                 f"<span style='color:{trend_color};font-size:13px'>{emoji} {trend_txt}</span>",
                 unsafe_allow_html=True,
             )
-            st.caption(
+            cap = (
                 f"포함 단지 {n_complex}개  |  "
-                f"최저 {latest['min']:.2f}억 · 평균 {latest['avg']:.2f}억 · 최고 {latest['max']:.2f}억"
+                f"매매 최저 {latest['min']:.2f}억 · 평균 {latest['avg']:.2f}억 · 최고 {latest['max']:.2f}억"
             )
-            fig = make_chart(stats, color)
+            if jeonse_stats is not None:
+                j_latest = jeonse_stats.iloc[-1]
+                cap += f"  ·  전세 평균 {j_latest['avg']:.2f}억"
+            st.caption(cap)
+
+            fig = make_chart(stats, color, price_title="매매가(억)", vol_name="매매건수")
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+            if jeonse_stats is not None:
+                fig_j = make_chart(
+                    jeonse_stats, JEONSE_COLOR,
+                    price_title="전세가(억)", vol_name="전세건수",
+                    min_label="전세최저", avg_label="전세평균",
+                )
+                st.plotly_chart(fig_j, use_container_width=True, config={"displayModeBar": False})
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
@@ -320,17 +400,28 @@ for region in selected_regions:
     latest_ym = dfc["ym"].max()
     latest = dfc[dfc["ym"] == latest_ym]
     emoji, trend_txt, _ = trend_signal(stats)
-    summary_rows.append({
-        "지역":     region,
-        "트렌드":   f"{emoji} {trend_txt}",
-        "최근거래": latest_ym.strftime("%Y.%m"),
-        "최저(억)": round(latest["eok"].min(), 2),
-        "평균(억)": round(latest["eok"].mean(), 2),
-        "최고(억)": round(latest["eok"].max(), 2),
-        "거래건수": len(latest),
-        "포함단지": dfc["apt_name"].nunique(),
-    })
+    row_dict = {
+        "지역":       region,
+        "트렌드":     f"{emoji} {trend_txt}",
+        "최근거래":   latest_ym.strftime("%Y.%m"),
+        "매매최저(억)": round(latest["eok"].min(), 2),
+        "매매평균(억)": round(latest["eok"].mean(), 2),
+        "매매최고(억)": round(latest["eok"].max(), 2),
+        "매매건수":   len(latest),
+        "포함단지":   dfc["apt_name"].nunique(),
+    }
+    lawd_codes = dfc["lawd_cd"].unique().tolist()
+    jdf = _filter_jeonse(lawd_codes)
+    if not jdf.empty:
+        j_latest_ym = jdf["ym"].max()
+        j_latest = jdf[jdf["ym"] == j_latest_ym]
+        row_dict["전세평균(억)"] = round(j_latest["deposit_eok"].mean(), 2)
+        row_dict["전세건수"] = len(j_latest)
+    else:
+        row_dict["전세평균(억)"] = None
+        row_dict["전세건수"] = None
+    summary_rows.append(row_dict)
 
 if summary_rows:
-    summary_df = pd.DataFrame(summary_rows).sort_values("평균(억)")
+    summary_df = pd.DataFrame(summary_rows).sort_values("매매평균(억)")
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
