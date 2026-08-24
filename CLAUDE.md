@@ -75,6 +75,13 @@ streamlit run app.py
 pip install -r requirements.txt
 ```
 
+**독립 실행형 수집 CLI (앱 UI와 별개로 실제 운용 중):**
+```bash
+python fetch_naver.py --complex 110834 "평택센트럴자이 2단지"
+python fetch_rtms.py --key YOUR_API_KEY --months 24
+```
+- `pages/naver_fetch.py`·`pages/rtms_fetch.py`(앱 내 UI)와 기능은 겹치지만, 스케줄 실행이나 대량 백필처럼 UI 없이 돌릴 때 이 CLI를 그대로 쓴다. 삭제하지 말 것.
+
 **배포 (Streamlit Community Cloud — 현재 기본, 무료):**
 - https://share.streamlit.io 에서 GitHub 리포(`korlee88/naver_land`) 연결
 - Main file: `app.py`

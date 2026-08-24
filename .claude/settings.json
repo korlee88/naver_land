@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//g/임시/app/260305_naver_land/**)",
-      "Skill(update-config)",
-      "Skill(update-config:*)"
-    ]
-  }
-}

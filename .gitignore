@@ -32,6 +32,3 @@ Thumbs.db
 
 # 출력 파일
 out/
-
-# Windows 스크립트
-*.ps1
