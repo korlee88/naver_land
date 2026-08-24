@@ -72,6 +72,14 @@ def load_data() -> pd.DataFrame:
         df["deal_year"].astype(str) + df["deal_month"].astype(str).str.zfill(2),
         format="%Y%m"
     )
+    # 매매는 실거래 신고일(deal_day)까지 있어 주 단위 집계가 가능
+    df["date"] = pd.to_datetime(
+        df["deal_year"].astype(str) + "-" +
+        df["deal_month"].astype(str).str.zfill(2) + "-" +
+        df["deal_day"].astype(str).str.zfill(2),
+        errors="coerce",
+    )
+    df = df.dropna(subset=["date"])
     return df
 
 
@@ -110,18 +118,34 @@ def monthly_stats(df: pd.DataFrame, col: str = "eok") -> pd.DataFrame:
         "max":   g.max().values,
         "count": g.count().values,
     }).reset_index(drop=True)
-    stats["ma3"] = stats["avg"].rolling(3, min_periods=2).mean()
+    stats["ma"] = stats["avg"].rolling(3, min_periods=2).mean()
     return stats
 
 
-def trend_signal(stats: pd.DataFrame) -> tuple[str, str, str]:
-    """최근 3개월 vs 이전 3개월 평균 비교. 반환: (이모지, 설명, 색상)"""
-    if len(stats) < 4:
+def weekly_stats(df: pd.DataFrame, col: str = "eok", ma_window: int = 4) -> pd.DataFrame:
+    """주(월요일 시작) 단위 집계. 컬럼 구성은 monthly_stats와 동일하게 맞춰 재사용(ym에는 그 주의 월요일 날짜가 담김)."""
+    d = df.copy()
+    d["ym"] = d["date"] - pd.to_timedelta(d["date"].dt.dayofweek, unit="D")
+    g = d.groupby("ym")[col]
+    stats = pd.DataFrame({
+        "ym":    g.min().index,
+        "min":   g.min().values,
+        "avg":   g.mean().values,
+        "max":   g.max().values,
+        "count": g.count().values,
+    }).reset_index(drop=True)
+    stats["ma"] = stats["avg"].rolling(ma_window, min_periods=2).mean()
+    return stats
+
+
+def trend_signal(stats: pd.DataFrame, window: int = 3) -> tuple[str, str, str]:
+    """최근 window구간 vs 이전 window구간 평균 비교. 반환: (이모지, 설명, 색상)"""
+    if len(stats) < window + 1:
         return "─", "데이터 부족", "#888"
     n = len(stats)
-    recent = stats["avg"].iloc[max(n - 3, 0):].mean()
-    prev = stats["avg"].iloc[max(n - 6, 0):max(n - 3, 0)].mean()
-    if prev == 0:
+    recent = stats["avg"].iloc[max(n - window, 0):].mean()
+    prev = stats["avg"].iloc[max(n - 2 * window, 0):max(n - window, 0)].mean()
+    if not prev:
         return "─", "보합", "#f39c12"
     pct = (recent - prev) / prev * 100
     if pct >= 2:
@@ -132,7 +156,8 @@ def trend_signal(stats: pd.DataFrame) -> tuple[str, str, str]:
         return "➡️", f"보합 ({pct:+.1f}%)", "#f39c12"
 
 
-def _price_band_traces(fig, stats, color, row, name_min="최저", name_avg="평균"):
+def _price_band_traces(fig, stats, color, row, name_min="최저", name_avg="평균",
+                        ma_label="이동평균", date_fmt="%Y-%m"):
     fig.add_trace(go.Scatter(
         x=pd.concat([stats["ym"], stats["ym"][::-1]]),
         y=pd.concat([stats["max"], stats["min"][::-1]]),
@@ -143,22 +168,22 @@ def _price_band_traces(fig, stats, color, row, name_min="최저", name_avg="평�
     fig.add_trace(go.Scatter(
         x=stats["ym"], y=stats["min"], name=name_min,
         line=dict(color=color, width=1.5, dash="dot"),
-        hovertemplate="%{x|%Y-%m} " + name_min + " %{y:.2f}억<extra></extra>",
+        hovertemplate=f"%{{x|{date_fmt}}} {name_min} " + "%{y:.2f}억<extra></extra>",
     ), row=row, col=1)
     fig.add_trace(go.Scatter(
         x=stats["ym"], y=stats["avg"], name=name_avg,
         line=dict(color=color, width=2.5), marker=dict(size=5),
-        hovertemplate="%{x|%Y-%m} " + name_avg + " %{y:.2f}억<extra></extra>",
+        hovertemplate=f"%{{x|{date_fmt}}} {name_avg} " + "%{y:.2f}억<extra></extra>",
     ), row=row, col=1)
-    if stats["ma3"].notna().sum() >= 2:
+    if stats["ma"].notna().sum() >= 2:
         fig.add_trace(go.Scatter(
-            x=stats["ym"], y=stats["ma3"], name="3개월 MA",
+            x=stats["ym"], y=stats["ma"], name=ma_label,
             line=dict(color="#888", width=1.5, dash="dash"),
-            hovertemplate="%{x|%Y-%m} MA3 %{y:.2f}억<extra></extra>",
+            hovertemplate=f"%{{x|{date_fmt}}} {ma_label} " + "%{y:.2f}억<extra></extra>",
         ), row=row, col=1)
 
 
-def _volume_bar_trace(fig, stats, color, row, name="거래건수"):
+def _volume_bar_trace(fig, stats, color, row, name="거래건수", date_fmt="%Y-%m"):
     vol_colors = [
         _hex_to_rgba(color, 0.8) if c >= stats["count"].median() else _hex_to_rgba(color, 0.4)
         for c in stats["count"]
@@ -166,7 +191,7 @@ def _volume_bar_trace(fig, stats, color, row, name="거래건수"):
     fig.add_trace(go.Bar(
         x=stats["ym"], y=stats["count"], name=name,
         marker_color=vol_colors,
-        hovertemplate="%{x|%Y-%m} %{y}건<extra></extra>",
+        hovertemplate=f"%{{x|{date_fmt}}} " + "%{y}건<extra></extra>",
     ), row=row, col=1)
 
 
@@ -174,16 +199,18 @@ def make_chart(
     stats: pd.DataFrame, color: str, *,
     price_title: str = "가격(억)", vol_name: str = "거래건수",
     min_label: str = "최저", avg_label: str = "평균",
+    ma_label: str = "이동평균", date_fmt: str = "%Y-%m",
 ) -> go.Figure:
-    """가격(밴드+평균+3개월MA)/거래량 2단 차트 1개. 확대·이동 불가(고정형).
+    """가격(밴드+평균+이동평균)/거래량 2단 차트 1개. 확대·이동 불가(고정형).
     매매·전세를 하나의 차트에 욱여넣으면 범례가 제목과 겹쳐 매매용/전세용을 각각 별도로 그린다."""
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True,
         row_heights=[0.7, 0.3], vertical_spacing=0.06,
         subplot_titles=[price_title, ""],
     )
-    _price_band_traces(fig, stats, color, row=1, name_min=min_label, name_avg=avg_label)
-    _volume_bar_trace(fig, stats, color, row=2, name=vol_name)
+    _price_band_traces(fig, stats, color, row=1, name_min=min_label, name_avg=avg_label,
+                        ma_label=ma_label, date_fmt=date_fmt)
+    _volume_bar_trace(fig, stats, color, row=2, name=vol_name, date_fmt=date_fmt)
 
     fig.update_layout(
         height=380,
@@ -219,7 +246,8 @@ def _pick_one(label: str, options: list[str], key: str, default: str | None = No
 st.title("지역별 가격동향 비교")
 st.caption(
     "국토부 실거래가 기준 — 단지 하나가 아니라 **구/동 전체를 합친** 매매·전세 시세와 거래량 추이를 "
-    "여러 지역 나란히 비교합니다. 단지별 상세 비교는 **가격 추이** 메뉴를 이용하세요."
+    "여러 지역 나란히 비교합니다. 단지별 상세 비교는 **가격 추이** 메뉴를 이용하세요. "
+    "매매는 **주 단위**, 전세는 국토부 데이터에 일자 정보가 없어 **월 단위**로 집계됩니다."
 )
 
 df_all = load_data()
@@ -318,7 +346,7 @@ compare_mode = _pick_one(
     "표시 방식", ["변동률(%)", "절대가격(억)"], "area_compare_mode", default="변동률(%)",
 )
 if compare_mode == "변동률(%)":
-    st.caption("ℹ️ 지역마다 가격대가 달라 절대가격으로 겹쳐 보면 등락이 눌려 보입니다 — 각 지역의 첫 달을 100으로 놓고 변동률로 비교합니다.")
+    st.caption("ℹ️ 지역마다 가격대가 달라 절대가격으로 겹쳐 보면 등락이 눌려 보입니다 — 각 지역의 첫 주를 100으로 놓고 변동률로 비교합니다.")
 
 fig_overlay = go.Figure()
 region_stats: dict[str, pd.DataFrame] = {}
@@ -326,19 +354,19 @@ for i, region in enumerate(selected_regions):
     dfc = _filter(region)
     if dfc.empty:
         continue
-    stats = monthly_stats(dfc)
+    stats = weekly_stats(dfc)
     region_stats[region] = stats
     color = PALETTE[i % len(PALETTE)]
     if compare_mode == "변동률(%)":
         base = stats["avg"].iloc[0]
         y_vals = stats["avg"] / base * 100 if base else stats["avg"]
-        hover = f"{region}<br>" + "%{x|%Y-%m} %{y:.1f} (시작월=100)<extra></extra>"
+        hover = f"{region}<br>" + "%{x|%Y-%m-%d} %{y:.1f} (시작주=100)<extra></extra>"
     else:
         y_vals = stats["avg"]
-        hover = f"{region}<br>" + "%{x|%Y-%m} 평균 %{y:.2f}억<extra></extra>"
+        hover = f"{region}<br>" + "%{x|%Y-%m-%d} 평균 %{y:.2f}억<extra></extra>"
     fig_overlay.add_trace(go.Scatter(
         x=stats["ym"], y=y_vals, name=region,
-        line=dict(color=color, width=2.5), marker=dict(size=5),
+        line=dict(color=color, width=2), marker=dict(size=4),
         hovertemplate=hover,
     ))
 fig_overlay.update_layout(
@@ -351,7 +379,7 @@ fig_overlay.update_layout(
 fig_overlay.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 if compare_mode == "변동률(%)":
     fig_overlay.add_hline(y=100, line=dict(color="#999", width=1, dash="dot"))
-    fig_overlay.update_yaxes(title_text="변동률 (시작월=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
+    fig_overlay.update_yaxes(title_text="변동률 (시작주=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 else:
     fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False})
@@ -373,9 +401,9 @@ for row in rows_layout:
                 st.markdown(f"**{region}**")
                 st.caption("해당 조건 데이터 없음")
                 continue
-            stats = region_stats.get(region) if region in region_stats else monthly_stats(dfc)
+            stats = region_stats.get(region) if region in region_stats else weekly_stats(dfc)
             latest = stats.iloc[-1]
-            emoji, trend_txt, trend_color = trend_signal(stats)
+            emoji, trend_txt, trend_color = trend_signal(stats, window=4)
             n_complex = dfc["apt_name"].nunique()
 
             lawd_codes = dfc["lawd_cd"].unique().tolist()
@@ -396,14 +424,17 @@ for row in rows_layout:
                 cap += f"  ·  전세 평균 {j_latest['avg']:.2f}억"
             st.caption(cap)
 
-            fig = make_chart(stats, color, price_title="매매가(억)", vol_name="매매건수")
+            fig = make_chart(
+                stats, color, price_title="매매가(억) · 주 단위", vol_name="매매건수",
+                ma_label="4주 이동평균", date_fmt="%Y-%m-%d",
+            )
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
             if jeonse_stats is not None:
                 fig_j = make_chart(
                     jeonse_stats, JEONSE_COLOR,
-                    price_title="전세가(억)", vol_name="전세건수",
-                    min_label="전세최저", avg_label="전세평균",
+                    price_title="전세가(억) · 월 단위", vol_name="전세건수",
+                    min_label="전세최저", avg_label="전세평균", ma_label="3개월 이동평균",
                 )
                 st.plotly_chart(fig_j, use_container_width=True, config={"displayModeBar": False})
 
@@ -416,10 +447,10 @@ for region in selected_regions:
     dfc = _filter(region)
     if dfc.empty:
         continue
-    stats = monthly_stats(dfc)
+    stats = region_stats.get(region) if region in region_stats else weekly_stats(dfc)
     latest_ym = dfc["ym"].max()
     latest = dfc[dfc["ym"] == latest_ym]
-    emoji, trend_txt, _ = trend_signal(stats)
+    emoji, trend_txt, _ = trend_signal(stats, window=4)
     row_dict = {
         "지역":       region,
         "트렌드":     f"{emoji} {trend_txt}",
