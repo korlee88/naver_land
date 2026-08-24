@@ -46,14 +46,16 @@ if _auto_sheet and "auto_restored" not in st.session_state:
                 st.warning(f"⚠️ 자동 복원 실패: {e}  |  RAW 관리 페이지에서 수동 복원해주세요.")
 
 pg = st.navigation([
-    st.Page("pages/rtms_chart.py",  title="가격 추이",       icon="📊", default=True),
-    st.Page("pages/rtms_fetch.py",  title="실거래가 수집",   icon="🏛️"),
+    st.Page("pages/rtms_chart.py",       title="가격 추이",       icon="📊", default=True),
+    st.Page("pages/rtms_area_trend.py",  title="지역별 가격동향", icon="🗺️"),
+    st.Page("pages/rtms_fetch.py",       title="실거래가 수집",   icon="🏛️"),
 ], position="hidden")
 
 with st.sidebar:
     st.markdown("**Menu**")
-    st.page_link("pages/rtms_chart.py",  label="가격 추이",       icon="📊")
-    st.page_link("pages/rtms_fetch.py",  label="실거래가 수집",   icon="🏛️")
+    st.page_link("pages/rtms_chart.py",       label="가격 추이",       icon="📊")
+    st.page_link("pages/rtms_area_trend.py",  label="지역별 가격동향", icon="🗺️")
+    st.page_link("pages/rtms_fetch.py",       label="실거래가 수집",   icon="🏛️")
     st.divider()
 
 pg.run()
