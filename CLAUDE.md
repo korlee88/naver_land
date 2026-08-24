@@ -8,6 +8,61 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## 파일 관리 규칙
+
+1. 새 파일보다 기존 파일 수정을 우선한다. 새 파일을 만들었으면 왜 필요했는지 한 줄로 설명한다.
+2. 버전 백업 파일(`_v2`, `_old`, `.bak`, `_backup`)을 만들지 않는다. 버전 관리는 git이 한다.
+3. 임시·실험 파일은 저장소 밖에 만든다. 저장소 안에 만들었으면 작업 후 삭제한다. 작업을 마칠 때 `git status`가 깨끗해야 한다.
+4. 생성물(`__pycache__`, `node_modules`, `.venv`, 빌드 산출물)은 커밋하지 않는다. `.gitignore`에 없는 새 생성물이 보이면 커밋 말고 `.gitignore`에 추가한다.
+5. 요청하지 않은 문서 파일(`SUMMARY.md`, `NOTES.md`, `IMPLEMENTATION.md` 등)을 만들지 않는다. 설명은 대화로, 맥락은 주석이나 커밋 메시지에 남긴다.
+6. 문서·산출물 이름은 `yymmdd_제목_부제목_vX.Y.확장자` 형식을 쓴다 (예: `260822_설계안_초안_v1.0.md`). 단 소스코드·설정 파일에는 적용하지 않는다 — 실행 대상이 이름으로 고정돼 있어 이름을 바꾸면 조용히 깨진다.
+7. `README.md`에 "파일 구성" 표를 두고 각 파일 역할을 한 줄로 적는다. 파일을 추가·삭제·이름변경하면 같은 커밋에서 이 표도 갱신한다. 목록 전용 파일(`INDEX.md`)은 만들지 않는다.
+8. 파일을 지우거나 옮기기 전에 다른 파일이 참조하는지 검색해서(import, 워크플로 실행 경로, README 언급) 함께 고친다.
+9. 미사용 코드는 주석 처리하지 말고 삭제한다. 기록은 git 히스토리에 남는다.
+10. API 키·토큰·계정정보를 코드나 커밋에 넣지 않는다. private 저장소도 히스토리에 영구히 남으므로 동일하게 취급한다.
+
+---
+
+## 저장소 구조
+
+Python(Streamlit) 단일 언어 프로젝트. Node/JS 빌드 체인 없음.
+
+```
+naver_land/
+├── app.py                  # 진입점 — 폰트/DB 초기화, Sheets 자동복원, 네비게이션
+├── rawdata.py               # 네이버 부동산 raw 텍스트 붙여넣기 → 파싱 → DB 저장 (루트, pages/ 아님)
+├── db.py                    # SQLite CRUD 전체, Google Sheets 백업/복원
+├── utils_graph.py           # build_df/make_daily/render_sidebar/compute_score
+├── utils_uid.py             # make_uid() — 매물 uid 생성 (SHA-1)
+├── utils_auth.py            # 비밀번호 인증 (현재 비활성화)
+├── utils_style.py           # inject_korean_font() — 한글 폰트 전역 적용
+├── setup_fonts.py           # 앱 시작 시 1회 실행되는 폰트 설치 스크립트
+├── fetch_naver.py           # 네이버 부동산 API 독립 실행형 수집 CLI (스케줄/수동 실행용)
+├── fetch_rtms.py            # 국토부 실거래가 독립 실행형 수집 CLI (스케줄/수동 실행용)
+├── pages/                   # Streamlit 멀티페이지 (app.py의 st.navigation 대상)
+│   ├── graph_v2.py          # 가격 추이 차트 (PC) — 활성
+│   ├── graph_mobile.py      # 가격 추이 차트 (모바일) — 활성
+│   ├── raw_manage.py        # RAW 데이터 배치 삭제/복원 — 활성
+│   ├── rtms_fetch.py        # 국토부 실거래가 수집 UI (매매+전월세)
+│   ├── rtms_chart.py        # 실거래가 가격 추이 차트 (매매+전세)
+│   ├── naver_fetch.py       # 네이버 부동산 수집 UI
+│   ├── recommend.py         # 가중치 기반 매물 추천 — 메뉴 숨김
+│   ├── visited.py           # 방문 매물 수기 기록 — 메뉴 숨김
+│   ├── view_manage.py       # 동별 조망 등급 관리 — 메뉴 숨김
+│   ├── policy_news.py       # 평택 부동산 뉴스 RSS — 메뉴 숨김
+│   ├── loan_info.py         # 보금자리론 월 납입액 계산기 — 메뉴 숨김
+│   └── notebooklm.py        # 뉴스+매물 요약 → NotebookLM용 — 메뉴 숨김
+├── gas/Code.gs               # Google Apps Script 소스 (참고용 — 실배포본은 스프레드시트 편집기)
+├── .streamlit/config.toml    # Streamlit 서버 설정
+├── requirements.txt / packages.txt   # Python 의존성 / apt 시스템 패키지
+├── Procfile / railway.toml   # Railway 배포 설정 (현재 미사용, 재활성화 참고용으로 보관)
+└── backup/, out/              # 로컬 산출물 디렉토리 — .gitignore 대상, 커밋 금지
+```
+
+숨겨진 `pages/*.py`는 파일이 존재하므로 `app.py`의 `st.navigation()`에 추가하면 즉시 재활성화 가능 — 이 때문에 "미사용"으로 보여도 삭제 대상이 아니다.
+
+---
+
 ## Commands
 
 **로컬 실행:**

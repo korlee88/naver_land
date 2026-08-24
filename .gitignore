@@ -5,6 +5,17 @@ __pycache__/
 .venv/
 venv/
 env/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# 환경변수 / 시크릿
+.env
+.env.*
+.streamlit/secrets.toml
+
+# 로그
+*.log
 
 # SQLite DB (Railway는 Google Sheets 자동복원 사용)
 naver_land.db
