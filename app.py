@@ -49,6 +49,8 @@ pg = st.navigation([
     st.Page("pages/rtms_chart.py",       title="가격 추이",       icon="📊", default=True),
     st.Page("pages/rtms_area_trend.py",  title="지역별 가격동향", icon="🗺️"),
     st.Page("pages/rtms_fetch.py",       title="실거래가 수집",   icon="🏛️"),
+    st.Page("pages/kosis_trend.py",      title="인구·주택·경제 통계", icon="📈"),
+    st.Page("pages/kosis_fetch.py",      title="KOSIS 통계 수집",     icon="🏢"),
 ], position="hidden")
 
 with st.sidebar:
@@ -56,6 +58,8 @@ with st.sidebar:
     st.page_link("pages/rtms_chart.py",       label="가격 추이",       icon="📊")
     st.page_link("pages/rtms_area_trend.py",  label="지역별 가격동향", icon="🗺️")
     st.page_link("pages/rtms_fetch.py",       label="실거래가 수집",   icon="🏛️")
+    st.page_link("pages/kosis_trend.py",      label="인구·주택·경제 통계", icon="📈")
+    st.page_link("pages/kosis_fetch.py",      label="KOSIS 통계 수집",     icon="🏢")
     st.divider()
 
 pg.run()
