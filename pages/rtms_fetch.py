@@ -117,7 +117,10 @@ def _ym_list(months: int) -> list[str]:
     return out
 
 
-def _fetch_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int = 100) -> dict:
+def _fetch_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int = 100, retries: int = 2) -> dict:
+    """지역 수가 늘면서 요청량이 많아져 data.go.kr 쪽 타임아웃이 잦아짐 —
+    네트워크/타임아웃 예외는 짧은 대기 후 재시도(retries회). API가 명확한 오류코드를
+    준 경우(인증키 문제 등)는 재시도해도 소용없으므로 바로 반환."""
     params = {
         "serviceKey": api_key,
         "LAWD_CD":    lawd_cd,
@@ -125,39 +128,43 @@ def _fetch_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int =
         "pageNo":     page,
         "numOfRows":  num_rows,
     }
-    try:
-        resp = requests.get(API_URL, params=params, timeout=20)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.text)
-        code = root.findtext(".//resultCode", "")
-        if code not in ("00", "000"):
-            msg = root.findtext(".//resultMsg", "알 수 없는 오류")
-            return {"error": f"[{code}] {msg}", "totalCount": 0, "items": []}
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(API_URL, params=params, timeout=20)
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+            code = root.findtext(".//resultCode", "")
+            if code not in ("00", "000"):
+                msg = root.findtext(".//resultMsg", "알 수 없는 오류")
+                return {"error": f"[{code}] {msg}", "totalCount": 0, "items": []}
 
-        total = int(root.findtext(".//totalCount", "0") or 0)
-        items = []
-        for item in root.findall(".//item"):
-            def g(*tags):
-                """한글/영문 태그 모두 시도 — 신형 Dev API는 영문 태그 사용"""
-                for tag in tags:
-                    v = item.findtext(tag, "")
-                    if v and v.strip():
-                        return v.strip()
-                return ""
-            items.append({
-                "apt_name":   g("아파트", "aptNm"),
-                "dong":       g("법정동", "umdNm"),
-                "floor":      g("층", "floor"),
-                "area":       g("전용면적", "excluUseAr"),
-                "price_man":  g("거래금액", "dealAmount").replace(",", ""),
-                "build_year": g("건축년도", "buildYear"),
-                "deal_day":   g("일", "dealDay"),
-                "road_name":  g("도로명", "roadNm"),
-                "cancel_yn":  g("해제여부", "cdealType"),
-            })
-        return {"error": "", "totalCount": total, "items": items}
-    except Exception as e:
-        return {"error": str(e), "totalCount": 0, "items": []}
+            total = int(root.findtext(".//totalCount", "0") or 0)
+            items = []
+            for item in root.findall(".//item"):
+                def g(*tags):
+                    """한글/영문 태그 모두 시도 — 신형 Dev API는 영문 태그 사용"""
+                    for tag in tags:
+                        v = item.findtext(tag, "")
+                        if v and v.strip():
+                            return v.strip()
+                    return ""
+                items.append({
+                    "apt_name":   g("아파트", "aptNm"),
+                    "dong":       g("법정동", "umdNm"),
+                    "floor":      g("층", "floor"),
+                    "area":       g("전용면적", "excluUseAr"),
+                    "price_man":  g("거래금액", "dealAmount").replace(",", ""),
+                    "build_year": g("건축년도", "buildYear"),
+                    "deal_day":   g("일", "dealDay"),
+                    "road_name":  g("도로명", "roadNm"),
+                    "cancel_yn":  g("해제여부", "cdealType"),
+                })
+            return {"error": "", "totalCount": total, "items": items}
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            return {"error": str(e), "totalCount": 0, "items": []}
 
 
 def _save_items(lawd_cd: str, ym: str, items: list) -> int:
@@ -198,40 +205,44 @@ def _save_items(lawd_cd: str, ym: str, items: list) -> int:
     return saved
 
 
-def _fetch_rent_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int = 100) -> dict:
-    """전월세 한 달치 조회"""
+def _fetch_rent_month(api_key: str, lawd_cd: str, ym: str, page: int, num_rows: int = 100, retries: int = 2) -> dict:
+    """전월세 한 달치 조회. 네트워크/타임아웃 예외는 재시도(retries회) — _fetch_month와 동일한 이유."""
     params = {
         "serviceKey": api_key, "LAWD_CD": lawd_cd,
         "DEAL_YMD": ym, "pageNo": page, "numOfRows": num_rows,
     }
-    try:
-        resp = requests.get(API_URL_RENT, params=params, timeout=20)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.text)
-        code = root.findtext(".//resultCode", "")
-        if code not in ("00", "000"):
-            return {"error": root.findtext(".//resultMsg", "오류"), "totalCount": 0, "items": []}
-        total = int(root.findtext(".//totalCount", "0") or 0)
-        items = []
-        raw_sample = None
-        for item in root.findall(".//item"):
-            def g(*tags):
-                for tag in tags:
-                    v = item.findtext(tag, "")
-                    if v and v.strip(): return v.strip()
-                return ""
-            if raw_sample is None:
-                raw_sample = {child.tag: (child.text or "").strip() for child in item}
-            items.append({
-                "apt_name":      g("아파트", "aptNm"),
-                "area":          g("전용면적", "excluUseAr"),
-                "deposit":       g("보증금액", "deposit").replace(",", ""),
-                "monthly_rent":  g("월세금액", "monthlyRent").replace(",", ""),
-                "contract_type": g("계약구분", "contractType"),
-            })
-        return {"error": "", "totalCount": total, "items": items, "raw_sample": raw_sample}
-    except Exception as e:
-        return {"error": str(e), "totalCount": 0, "items": [], "raw_sample": None}
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(API_URL_RENT, params=params, timeout=20)
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+            code = root.findtext(".//resultCode", "")
+            if code not in ("00", "000"):
+                return {"error": root.findtext(".//resultMsg", "오류"), "totalCount": 0, "items": []}
+            total = int(root.findtext(".//totalCount", "0") or 0)
+            items = []
+            raw_sample = None
+            for item in root.findall(".//item"):
+                def g(*tags):
+                    for tag in tags:
+                        v = item.findtext(tag, "")
+                        if v and v.strip(): return v.strip()
+                    return ""
+                if raw_sample is None:
+                    raw_sample = {child.tag: (child.text or "").strip() for child in item}
+                items.append({
+                    "apt_name":      g("아파트", "aptNm"),
+                    "area":          g("전용면적", "excluUseAr"),
+                    "deposit":       g("보증금액", "deposit").replace(",", ""),
+                    "monthly_rent":  g("월세금액", "monthlyRent").replace(",", ""),
+                    "contract_type": g("계약구분", "contractType"),
+                })
+            return {"error": "", "totalCount": total, "items": items, "raw_sample": raw_sample}
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            return {"error": str(e), "totalCount": 0, "items": [], "raw_sample": None}
 
 
 def _save_rent_items(lawd_cd: str, ym: str, items: list) -> int:
@@ -345,7 +356,7 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
     status = st.empty()
     log = st.container()
     total_saved = 0
-    first_error = None
+    failed_periods: list[str] = []  # 오류로 스킵된 [지역] YYYYMM 목록 — 재수집 시 다시 시도됨
     sample_names: set[str] = set()
     step = 0
 
@@ -356,17 +367,20 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
 
             all_items = []
             page = 1
+            page_error = None
             while True:
                 res = _fetch_month(api_key, lawd_cd, ym, page)
                 if res["error"]:
-                    if first_error is None:
-                        first_error = res["error"]
+                    page_error = res["error"]
                     break
                 all_items.extend(res["items"])
                 if len(all_items) >= res["totalCount"] or not res["items"]:
                     break
                 page += 1
                 time.sleep(0.2)
+
+            if page_error:
+                failed_periods.append(f"[{region_name}] {ym}: {page_error}")
 
             for it in all_items:
                 if len(sample_names) < 300:
@@ -375,18 +389,22 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
             saved = _save_items(lawd_cd, ym, all_items)
             total_saved += saved
             with log:
-                st.caption(f"  [{region_name}] {ym} → 전체 {len(all_items)}건 중 {saved}건 저장")
+                if page_error:
+                    st.caption(f"  ⚠️ [{region_name}] {ym} → 오류로 스킵 (재수집 시 재시도됨)")
+                else:
+                    st.caption(f"  [{region_name}] {ym} → 전체 {len(all_items)}건 중 {saved}건 저장")
             step += 1
             progress.progress(step / total_steps)
             time.sleep(0.1)
 
-    # 전월세 수집
+    # 전월세 수집 — 매매 쪽에서 일부 월/지역이 타임아웃 났다고 해서 전월세 전체를
+    # 건너뛸 이유는 없음(서로 독립된 요청). also_rent 체크박스만으로 실행 여부 결정.
     rent_saved = 0
     rent_total_seen = 0
-    first_rent_error = None
     first_rent_raw_sample = None
+    failed_rent_periods: list[str] = []
     rent_sample_names: set[str] = set()
-    if also_rent and not first_error:
+    if also_rent:
         status2 = st.empty()
         log2 = st.container()
         step = 0
@@ -396,11 +414,11 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                 status2.markdown(f"**전월세 수집 중...** [{region_name}] {ym} ({step+1}/{total_steps})")
                 all_items = []
                 page = 1
+                page_error = None
                 while True:
                     res = _fetch_rent_month(api_key, lawd_cd, ym, page)
                     if res["error"]:
-                        if first_rent_error is None:
-                            first_rent_error = res["error"]
+                        page_error = res["error"]
                         break
                     if first_rent_raw_sample is None and res.get("raw_sample"):
                         first_rent_raw_sample = res["raw_sample"]
@@ -411,6 +429,8 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                         break
                     page += 1
                     time.sleep(0.2)
+                if page_error:
+                    failed_rent_periods.append(f"[{region_name}] {ym}: {page_error}")
                 rent_total_seen += len(all_items)
                 for it in all_items:
                     if len(rent_sample_names) < 300:
@@ -418,7 +438,10 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
                 saved2 = _save_rent_items(lawd_cd, ym, all_items)
                 rent_saved += saved2
                 with log2:
-                    st.caption(f"  [전월세][{region_name}] {ym} → 전체 {len(all_items)}건 중 {saved2}건 저장")
+                    if page_error:
+                        st.caption(f"  ⚠️ [전월세][{region_name}] {ym} → 오류로 스킵 (재수집 시 재시도됨)")
+                    else:
+                        st.caption(f"  [전월세][{region_name}] {ym} → 전체 {len(all_items)}건 중 {saved2}건 저장")
                 step += 1
                 time.sleep(0.1)
         status2.empty()
@@ -437,9 +460,9 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key or
         "total_saved": total_saved,
         "rent_saved": rent_saved,
         "rent_total_seen": rent_total_seen,
-        "first_error": first_error,
-        "first_rent_error": first_rent_error,
         "first_rent_raw_sample": first_rent_raw_sample,
+        "failed_periods": failed_periods,
+        "failed_rent_periods": failed_rent_periods,
         "sample_names": sample_names,
         "rent_sample_names": rent_sample_names,
         "selected_lawds": selected_lawds,
@@ -476,8 +499,16 @@ if _res:
                 st.markdown("**받은 전체 단지명 (가나다순):**")
                 st.write(sorted(_res["sample_names"]))
 
-        if _res["first_error"]:
-            st.error(f"API 오류: {_res['first_error']}\n\n인증키가 올바른지, 활용신청이 승인됐는지 확인하세요.")
+        if _res.get("failed_periods"):
+            n = len(_res["failed_periods"])
+            with st.expander(f"⚠️ 매매 수집 중 오류로 스킵된 지역/월 {n}건", expanded=True):
+                st.caption(
+                    "대부분 data.go.kr 쪽 일시적 타임아웃입니다 — 아래 지역/월이 계속 반복되면 "
+                    "인증키가 올바른지, 활용신청이 승인됐는지 확인하세요. 그 외에는 **다시 수집** 버튼을 "
+                    "누르면 이미 저장된 건은 건너뛰고 스킵된 부분만 재시도됩니다."
+                )
+                for line in _res["failed_periods"]:
+                    st.caption(f"　{line}")
         if _res["total_saved"] > 0 or _res["rent_saved"] > 0:
             st.success(f"🎉 수집 완료 — 매매 **{_res['total_saved']}건** / 전월세 **{_res['rent_saved']}건** 새로 저장 (이미 DB에 있던 건은 중복 제외)")
             if _res["backup_err"]:
@@ -487,10 +518,10 @@ if _res:
                 )
             else:
                 st.success(f"☁️ 구글시트 백업 완료 — 매매 {_res['backup_t']}건 / 전월세 {_res['backup_j']}건 (앱 재시작 시 자동 복원됨)")
-        elif not _res["first_error"]:
+        elif not _res.get("failed_periods"):
             st.warning("새로 저장된 건이 없습니다. (이미 DB에 있는 데이터이거나, 해당 기간 거래가 없었을 수 있음)")
 
-        if _res["also_rent"] and not _res["first_error"]:
+        if _res["also_rent"]:
             with st.expander(
                 f"🔍 전월세 진단: 조회 {_res['rent_total_seen']}건 / 저장 {_res['rent_saved']}건 / 단지 {len(_res['rent_sample_names'])}종",
                 expanded=(_res["rent_saved"] == 0),
@@ -511,13 +542,17 @@ if _res:
                     st.markdown("**받은 전체 단지명 (가나다순):**")
                     st.write(sorted(_res["rent_sample_names"]))
 
-        if _res["first_rent_error"]:
-            st.error(
-                f"⚠️ 전월세 API 오류: {_res['first_rent_error']}\n\n"
-                "→ data.go.kr 마이페이지에서 **'아파트 전월세 실거래가'** API를 별도로 활용신청했는지 확인하세요. "
-                "매매 API와 전월세 API는 **별도 승인**이 필요합니다."
-            )
-        elif _res["also_rent"] and _res["rent_saved"] == 0 and not _res["first_error"]:
+        if _res.get("failed_rent_periods"):
+            n = len(_res["failed_rent_periods"])
+            with st.expander(f"⚠️ 전월세 수집 중 오류로 스킵된 지역/월 {n}건", expanded=True):
+                st.caption(
+                    "대부분 data.go.kr 쪽 일시적 타임아웃입니다. 계속 반복되면 data.go.kr 마이페이지에서 "
+                    "**'아파트 전월세 실거래가'** API를 별도로 활용신청했는지 확인하세요 (매매 API와 **별도 승인** 필요). "
+                    "그 외에는 **다시 수집** 버튼을 누르면 스킵된 부분만 자연스럽게 재시도됩니다."
+                )
+                for line in _res["failed_rent_periods"]:
+                    st.caption(f"　{line}")
+        elif _res["also_rent"] and _res["rent_saved"] == 0:
             if _res["rent_total_seen"] == 0:
                 st.warning(
                     "전월세 API 조회 결과가 전체 기간·지역에서 0건이었습니다 (오류 없이 정상 응답, 그러나 item 없음). "
