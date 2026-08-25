@@ -204,6 +204,35 @@ def _kosis_sparkline(df: pd.DataFrame, color: str, unit: str) -> go.Figure:
     return fig
 
 
+def _price_kosis_overlay_chart(price_yearly: pd.DataFrame, kosis_yearly: pd.DataFrame,
+                                price_color: str, unit: str) -> go.Figure:
+    """매매평균가(연도별)와 KOSIS 지표를 같은 x축(연도)에 이중축으로 겹쳐 그린다."""
+    merged = pd.merge(price_yearly, kosis_yearly.rename(columns={"value": "kosis"}), on="year", how="outer").sort_values("year")
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(go.Scatter(
+        x=merged["year"], y=merged["price"], name="매매평균가",
+        line=dict(color=price_color, width=2.5), marker=dict(size=5),
+        hovertemplate="%{x} 매매평균 %{y:.2f}억<extra></extra>",
+        connectgaps=True,
+    ), secondary_y=False)
+    fig.add_trace(go.Scatter(
+        x=merged["year"], y=merged["kosis"], name="KOSIS 지표",
+        line=dict(color="#888", width=2, dash="dash"), marker=dict(size=5, symbol="diamond"),
+        hovertemplate="%{x} " + f"{unit} " + "%{y:,.0f}<extra></extra>",
+        connectgaps=True,
+    ), secondary_y=True)
+    fig.update_layout(
+        height=190, margin=dict(l=4, r=4, t=4, b=4),
+        plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(orientation="h", x=0, y=1.28, font=dict(size=9)),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(dtick=1, tickfont=dict(size=9), showgrid=True, gridcolor="#f5f5f5", fixedrange=True)
+    fig.update_yaxes(ticksuffix="억", tickfont=dict(size=9), showgrid=False, fixedrange=True, secondary_y=False)
+    fig.update_yaxes(tickfont=dict(size=9), showgrid=False, fixedrange=True, secondary_y=True)
+    return fig
+
+
 @st.cache_data(ttl=300)
 def load_jeonse() -> pd.DataFrame:
     """전월세 (rtms_jeonse) 중 순수 전세(월세 없는 보증금만) 거래만. dong 컬럼이 없어 시/구 단위만 가능."""
@@ -565,7 +594,8 @@ st.subheader("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)")
 st.caption(
     "가격 추이만으로는 안 보이는 배경 지표입니다 — 인구 증감(수요), 주택 인허가실적(향후 공급), "
     "가동사업자 수(지역 경제 활력)를 함께 보면 판단에 참고가 됩니다. KOSIS 기준 **연 단위** 통계입니다. "
-    "각 지표 아래 **가격 상관**은 그 지역의 연도별 매매평균가와 KOSIS 값의 상관계수(r)입니다 — "
+    "실선(왼쪽 축)은 그 지역 매매평균가, 점선(오른쪽 축)은 KOSIS 지표 — 두 선이 같은 방향으로 움직이는지 "
+    "직접 눈으로 비교할 수 있습니다. 아래 **가격 상관**은 그 상관관계를 계수(r)로 요약한 값이며, "
     "연도 수가 적어(보통 5~10개) 참고용으로만 보세요."
 )
 st.caption("⚠️ 주택 인허가실적은 이 앱이 다루는 **아파트만이 아니라** 단독·연립·다세대 등 모든 주택 유형을 합친 값입니다 (KOSIS 통계표 특성상 유형별 분리 항목을 아직 확인 못함) — 다른 두 지표보다 해석에 유의하세요.")
@@ -576,48 +606,56 @@ if df_kosis_all.empty:
     st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
 else:
     corr_collect: dict[str, list[float]] = {k: [] for k in KOSIS_CAT_LABEL}
-    kosis_rows_layout = [selected_regions[i:i + COLS] for i in range(0, len(selected_regions), COLS)]
-    for row in kosis_rows_layout:
-        cols = st.columns(len(row))
-        for col, region in zip(cols, row):
-            with col:
-                st.markdown(f"**{region}**")
-                city, gu = _kosis_city_keyword(region)
-                region_color = PALETTE[selected_regions.index(region) % len(PALETTE)]
-                dfc_price = _filter(region)
-                metric_cols = st.columns(len(KOSIS_CAT_LABEL))
-                for (cat_key, mcol) in zip(KOSIS_CAT_LABEL, metric_cols):
-                    with mcol:
-                        icon, label = KOSIS_CAT_ICON[cat_key], KOSIS_CAT_LABEL[cat_key]
-                        cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
-                        kosis_regions = sorted(cat_df["region_name"].dropna().unique())
-                        matched = _match_kosis_region(city, gu, kosis_regions)
-                        summary = _kosis_summary(cat_df, matched) if matched else None
-                        st.caption(f"{icon} {label}")
-                        if not summary:
-                            st.caption("매칭되는 통계 없음")
-                            continue
-                        unit_series = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
-                        unit = unit_series.iloc[0] if not unit_series.empty else ""
-                        yoy_txt = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
-                        st.markdown(f"**{summary['latest_value']:,.0f}{unit}**{yoy_txt}")
-                        if len(summary["df"]) >= 2:
-                            fig_sp = _kosis_sparkline(summary["df"], region_color, unit)
-                            st.plotly_chart(
-                                fig_sp, use_container_width=True,
-                                config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
-                                key=f"kosis_spark_{region}_{cat_key}",
-                            )
-                        r, n_yr = _price_kosis_corr(dfc_price, summary["df"])
-                        if r is None:
-                            st.caption(f"가격 상관 — 표본 부족({n_yr}개년)")
-                        else:
-                            corr_txt, corr_color = _corr_label(r)
-                            corr_collect[cat_key].append(r)
-                            st.markdown(
-                                f"<span style='font-size:12px;color:{corr_color}'>가격 상관: {corr_txt}</span>",
-                                unsafe_allow_html=True,
-                            )
+    # 이중축 차트는 폭이 좁으면 알아보기 어려워 지역 1개당 한 행 전체를 쓴다
+    for region in selected_regions:
+        st.markdown(f"**{region}**")
+        city, gu = _kosis_city_keyword(region)
+        region_color = PALETTE[selected_regions.index(region) % len(PALETTE)]
+        dfc_price = _filter(region)
+        price_yearly = _price_year_series(dfc_price) if not dfc_price.empty else pd.DataFrame(columns=["year", "price"])
+        metric_cols = st.columns(len(KOSIS_CAT_LABEL))
+        for (cat_key, mcol) in zip(KOSIS_CAT_LABEL, metric_cols):
+            with mcol:
+                icon, label = KOSIS_CAT_ICON[cat_key], KOSIS_CAT_LABEL[cat_key]
+                cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
+                kosis_regions = sorted(cat_df["region_name"].dropna().unique())
+                matched = _match_kosis_region(city, gu, kosis_regions)
+                summary = _kosis_summary(cat_df, matched) if matched else None
+                st.caption(f"{icon} {label}")
+                if not summary:
+                    st.caption("매칭되는 통계 없음")
+                    continue
+                unit_series = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
+                unit = unit_series.iloc[0] if not unit_series.empty else ""
+                yoy_txt = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
+                st.markdown(f"**{summary['latest_value']:,.0f}{unit}**{yoy_txt}")
+
+                if not price_yearly.empty and len(summary["df"]) >= 2:
+                    fig_ov = _price_kosis_overlay_chart(price_yearly, summary["df"], region_color, unit)
+                    st.plotly_chart(
+                        fig_ov, use_container_width=True,
+                        config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+                        key=f"kosis_overlay_{region}_{cat_key}",
+                    )
+                elif len(summary["df"]) >= 2:
+                    fig_sp = _kosis_sparkline(summary["df"], region_color, unit)
+                    st.plotly_chart(
+                        fig_sp, use_container_width=True,
+                        config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+                        key=f"kosis_spark_{region}_{cat_key}",
+                    )
+
+                r, n_yr = _price_kosis_corr(dfc_price, summary["df"])
+                if r is None:
+                    st.caption(f"가격 상관 — 표본 부족({n_yr}개년)")
+                else:
+                    corr_txt, corr_color = _corr_label(r)
+                    corr_collect[cat_key].append(r)
+                    st.markdown(
+                        f"<span style='font-size:12px;color:{corr_color}'>가격 상관: {corr_txt}</span>",
+                        unsafe_allow_html=True,
+                    )
+        st.markdown("")
 
     corr_summary_rows = []
     for cat_key, rs in corr_collect.items():
