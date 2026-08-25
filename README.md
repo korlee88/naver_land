@@ -24,6 +24,8 @@
 | `pages/rtms_fetch.py` | 국토부 실거래가 수집 UI (매매·전월세) |
 | `pages/rtms_chart.py` | 국토부 실거래가 가격 추이 차트 (매매·전세) |
 | `pages/rtms_area_trend.py` | 국토부 실거래가 기반 구/동 단위 가격동향 비교 |
+| `pages/kosis_fetch.py` | KOSIS(국가통계포털) 인구·주택·경제 통계 수집 UI |
+| `pages/kosis_trend.py` | KOSIS 통계 기반 인구·세대수/주택 인허가/사업자 현황 트렌드 |
 | `pages/naver_fetch.py` | 네이버 부동산 수집 UI |
 | `pages/recommend.py` | 가중치 기반 매물 점수 추천 (메뉴 숨김) |
 | `pages/visited.py` | 방문 매물 수기 기록 (메뉴 숨김) |
