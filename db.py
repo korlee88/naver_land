@@ -171,6 +171,27 @@ def init_db() -> None:
         ON rtms_transactions(apt_name, deal_year, deal_month)
         """)
 
+        # KOSIS(국가통계포털) 인구·주택·경제 통계
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS kosis_stats (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            category    TEXT    NOT NULL,
+            tbl_id      TEXT    NOT NULL,
+            region_name TEXT    NOT NULL,
+            sub_label   TEXT,
+            item_name   TEXT,
+            unit_name   TEXT,
+            prd_de      TEXT    NOT NULL,
+            value       REAL,
+            fetched_at  TEXT    NOT NULL,
+            UNIQUE(category, tbl_id, region_name, sub_label, item_name, prd_de)
+        )
+        """)
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_kosis_cat_region
+        ON kosis_stats(category, region_name, prd_de)
+        """)
+
         # ✅ 혹시 예전 DB에 batch_id 컬럼이 없던 경우 대비 (마이그레이션)
         cur.execute("PRAGMA table_info(price_history)")
         cols = [r["name"] for r in cur.fetchall()]
@@ -653,6 +674,82 @@ def restore_rtms_from_sheet() -> tuple[int, int]:
         pass
 
     return trade_saved, jeonse_saved
+
+
+KOSIS_SHEET = "KOSIS통계"
+
+
+def is_kosis_empty() -> bool:
+    """kosis_stats 테이블이 비어있으면 True"""
+    try:
+        with get_conn() as conn:
+            return conn.execute("SELECT COUNT(*) FROM kosis_stats").fetchone()[0] == 0
+    except Exception:
+        return True
+
+
+def push_kosis_to_sheet() -> tuple[int, str]:
+    """kosis_stats → 구글시트 백업. 반환: (건수, 오류메시지)"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT category, tbl_id, region_name, sub_label, item_name, unit_name, prd_de, value, fetched_at
+            FROM kosis_stats ORDER BY category, region_name, prd_de
+        """).fetchall()
+    rows_2d = [list(r) for r in rows]
+    if not rows_2d:
+        return 0, ""
+    try:
+        resp = requests.post(
+            GAS_URL,
+            json={"token": GAS_TOKEN, "rows": rows_2d, "sheet_name": KOSIS_SHEET},
+            timeout=300,
+        )
+    except Exception as e:
+        return 0, str(e)
+    if resp.status_code != 200:
+        return 0, f"HTTP {resp.status_code}: {resp.text[:200]}"
+    return len(rows_2d), ""
+
+
+def restore_kosis_from_sheet() -> int:
+    """구글시트 → kosis_stats 복원. 반환: 복원 건수"""
+    try:
+        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": KOSIS_SHEET}, timeout=300)
+        r.raise_for_status()
+        rows = r.json().get("rows", [])
+    except Exception:
+        return 0
+
+    fetched_at = _now_iso()
+    insert_rows = []
+    for row in rows:
+        if not row or len(row) < 8:
+            continue
+        if str(row[0]).strip().lower() == "category":
+            continue
+        try:
+            value = float(row[7]) if row[7] not in (None, "") else None
+            insert_rows.append((
+                str(row[0]), str(row[1]), str(row[2]),
+                str(row[3]) if row[3] not in (None, "") else None,
+                str(row[4]) if row[4] not in (None, "") else None,
+                str(row[5]) if row[5] not in (None, "") else None,
+                str(row[6]), value,
+                str(row[8]) if len(row) > 8 and row[8] else fetched_at,
+            ))
+        except (ValueError, TypeError, IndexError):
+            continue
+    if not insert_rows:
+        return 0
+
+    with get_conn() as conn:
+        cur = conn.executemany("""
+            INSERT OR IGNORE INTO kosis_stats
+              (category, tbl_id, region_name, sub_label, item_name, unit_name, prd_de, value, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, insert_rows)
+        conn.commit()
+        return cur.rowcount
 
 
 # =========================

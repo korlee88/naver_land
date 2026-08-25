@@ -2,7 +2,11 @@
 import os
 import streamlit as st
 import setup_fonts
-from db import init_db, is_db_empty, restore_from_sheet, is_rtms_empty, restore_rtms_from_sheet
+from db import (
+    init_db, is_db_empty, restore_from_sheet,
+    is_rtms_empty, restore_rtms_from_sheet,
+    is_kosis_empty, restore_kosis_from_sheet,
+)
 
 # 폰트 초기화 (Streamlit Cloud: packages.txt 설치 폰트 우선, 없으면 다운로드)
 if "fonts_initialized" not in st.session_state:
@@ -28,6 +32,19 @@ if "rtms_restored" not in st.session_state:
                 t, j = restore_rtms_from_sheet()
                 if t > 0 or j > 0:
                     st.success(f"✅ 실거래가 복원 완료 — 매매 {t}건 / 전월세 {j}건")
+                    st.cache_data.clear()
+            except Exception:
+                pass  # 복원 실패 시 조용히 무시 (첫 수집 전일 수 있음)
+
+# ── KOSIS 통계 자동 복원 (수면 후 재시작 시 구글시트에서 복원) ──
+if "kosis_restored" not in st.session_state:
+    st.session_state.kosis_restored = True
+    if is_kosis_empty():
+        with st.spinner("📥 KOSIS 통계 복원 중..."):
+            try:
+                n = restore_kosis_from_sheet()
+                if n > 0:
+                    st.success(f"✅ KOSIS 통계 복원 완료 — {n}건")
                     st.cache_data.clear()
             except Exception:
                 pass  # 복원 실패 시 조용히 무시 (첫 수집 전일 수 있음)
