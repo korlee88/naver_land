@@ -562,7 +562,10 @@ if compare_mode == "변동률(%)":
     fig_overlay.update_yaxes(title_text="변동률 (시작주=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 else:
     fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
+# 전폭이면 3.5:1로 납작해져 등락이 눌려 보인다 — 반폭으로 줄여 가로세로비를 맞춘다
+overlay_col, _ = st.columns(2)
+with overlay_col:
+    st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
 
 st.divider()
 
