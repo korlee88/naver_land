@@ -540,7 +540,7 @@ def push_rtms_to_sheet() -> tuple[int, int, str]:
                 resp = requests.post(
                     GAS_URL,
                     json={"token": GAS_TOKEN, "rows": rows, "sheet_name": sheet_name},
-                    timeout=120,
+                    timeout=300,
                 )
             except requests.exceptions.RequestException as e:
                 return False, f"[{sheet_name}] 요청 실패: {e}"
@@ -573,7 +573,7 @@ def restore_rtms_from_sheet() -> tuple[int, int]:
     fetched_at = datetime.now().isoformat(timespec="seconds")
 
     def _fetch_rows(sheet_name):
-        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": sheet_name}, timeout=60)
+        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": sheet_name}, timeout=300)
         r.raise_for_status()
         return r.json().get("rows", [])
 
