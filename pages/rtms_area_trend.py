@@ -382,7 +382,7 @@ if compare_mode == "변동률(%)":
     fig_overlay.update_yaxes(title_text="변동률 (시작주=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 else:
     fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False})
+st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
 
 st.divider()
 
@@ -428,7 +428,7 @@ for row in rows_layout:
                 stats, color, price_title="매매가(억) · 주 단위", vol_name="매매건수",
                 ma_label="4주 이동평균", date_fmt="%Y-%m-%d",
             )
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
 
             if jeonse_stats is not None:
                 fig_j = make_chart(
@@ -436,7 +436,7 @@ for row in rows_layout:
                     price_title="전세가(억) · 월 단위", vol_name="전세건수",
                     min_label="전세최저", avg_label="전세평균", ma_label="3개월 이동평균",
                 )
-                st.plotly_chart(fig_j, use_container_width=True, config={"displayModeBar": False})
+                st.plotly_chart(fig_j, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
