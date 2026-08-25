@@ -93,7 +93,7 @@ def load_data() -> pd.DataFrame:
     return df
 
 
-KOSIS_CAT_LABEL = {"population": "인구·세대수", "housing": "주택 인허가실적", "business": "가동사업자수"}
+KOSIS_CAT_LABEL = {"population": "인구·세대수", "housing": "주택 인허가(전체유형)", "business": "가동사업자수"}
 KOSIS_CAT_ICON = {"population": "👥", "housing": "🏗", "business": "🏢"}
 
 
@@ -164,6 +164,31 @@ def _kosis_summary(cat_df: pd.DataFrame, region_name: str) -> dict | None:
         if prev["value"]:
             yoy = (latest["value"] - prev["value"]) / prev["value"] * 100
     return {"df": dfc, "latest_value": latest["value"], "yoy": yoy}
+
+
+def _price_year_series(dfc: pd.DataFrame) -> pd.DataFrame:
+    """지역 매매 실거래(dfc, eok/ym 컬럼)를 KOSIS와 맞춰 연도별 평균가로 집계."""
+    d = dfc.assign(year=dfc["ym"].dt.year)
+    return d.groupby("year", as_index=False)["eok"].mean().rename(columns={"eok": "price"})
+
+
+def _price_kosis_corr(dfc: pd.DataFrame, kosis_yearly: pd.DataFrame) -> tuple[float | None, int]:
+    """연도별 매매평균가 vs KOSIS 연도별 값의 피어슨 상관계수. 반환: (r 또는 None, 겹치는 연도 수)."""
+    if dfc.empty or kosis_yearly.empty:
+        return None, 0
+    price_yr = _price_year_series(dfc)
+    merged = pd.merge(price_yr, kosis_yearly.rename(columns={"value": "kosis"}), on="year", how="inner")
+    if len(merged) < 3:
+        return None, len(merged)
+    r = merged["price"].corr(merged["kosis"])
+    return (None if pd.isna(r) else float(r)), len(merged)
+
+
+def _corr_label(r: float) -> tuple[str, str]:
+    strength = "강한" if abs(r) >= 0.7 else "중간" if abs(r) >= 0.4 else "약한" if abs(r) >= 0.2 else "거의 없는"
+    direction = "양의" if r >= 0 else "음의"
+    color = "#27ae60" if r >= 0.2 else "#e74c3c" if r <= -0.2 else "#888"
+    return f"{strength} {direction} 상관 (r={r:+.2f})", color
 
 
 def _kosis_sparkline(df: pd.DataFrame, color: str, unit: str) -> go.Figure:
@@ -539,14 +564,18 @@ st.divider()
 st.subheader("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)")
 st.caption(
     "가격 추이만으로는 안 보이는 배경 지표입니다 — 인구 증감(수요), 주택 인허가실적(향후 공급), "
-    "가동사업자 수(지역 경제 활력)를 함께 보면 판단에 참고가 됩니다. KOSIS 기준 **연 단위** 통계입니다."
+    "가동사업자 수(지역 경제 활력)를 함께 보면 판단에 참고가 됩니다. KOSIS 기준 **연 단위** 통계입니다. "
+    "각 지표 아래 **가격 상관**은 그 지역의 연도별 매매평균가와 KOSIS 값의 상관계수(r)입니다 — "
+    "연도 수가 적어(보통 5~10개) 참고용으로만 보세요."
 )
+st.caption("⚠️ 주택 인허가실적은 이 앱이 다루는 **아파트만이 아니라** 단독·연립·다세대 등 모든 주택 유형을 합친 값입니다 (KOSIS 통계표 특성상 유형별 분리 항목을 아직 확인 못함) — 다른 두 지표보다 해석에 유의하세요.")
 
 df_kosis_all = load_kosis()
 if df_kosis_all.empty:
     st.info("아직 수집된 KOSIS 통계가 없습니다.")
     st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
 else:
+    corr_collect: dict[str, list[float]] = {k: [] for k in KOSIS_CAT_LABEL}
     kosis_rows_layout = [selected_regions[i:i + COLS] for i in range(0, len(selected_regions), COLS)]
     for row in kosis_rows_layout:
         cols = st.columns(len(row))
@@ -555,6 +584,7 @@ else:
                 st.markdown(f"**{region}**")
                 city, gu = _kosis_city_keyword(region)
                 region_color = PALETTE[selected_regions.index(region) % len(PALETTE)]
+                dfc_price = _filter(region)
                 metric_cols = st.columns(len(KOSIS_CAT_LABEL))
                 for (cat_key, mcol) in zip(KOSIS_CAT_LABEL, metric_cols):
                     with mcol:
@@ -578,6 +608,32 @@ else:
                                 config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
                                 key=f"kosis_spark_{region}_{cat_key}",
                             )
+                        r, n_yr = _price_kosis_corr(dfc_price, summary["df"])
+                        if r is None:
+                            st.caption(f"가격 상관 — 표본 부족({n_yr}개년)")
+                        else:
+                            corr_txt, corr_color = _corr_label(r)
+                            corr_collect[cat_key].append(r)
+                            st.markdown(
+                                f"<span style='font-size:12px;color:{corr_color}'>가격 상관: {corr_txt}</span>",
+                                unsafe_allow_html=True,
+                            )
+
+    corr_summary_rows = []
+    for cat_key, rs in corr_collect.items():
+        if not rs:
+            continue
+        avg_r = sum(rs) / len(rs)
+        corr_txt, _ = _corr_label(avg_r)
+        corr_summary_rows.append({
+            "지표": f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_LABEL[cat_key]}",
+            "평균 상관계수": f"{avg_r:+.2f}",
+            "해석": corr_txt,
+            "표본 지역 수": len(rs),
+        })
+    if corr_summary_rows:
+        st.markdown("**📎 종합 — 선택 지역 전체의 평균 상관관계**")
+        st.dataframe(pd.DataFrame(corr_summary_rows), use_container_width=True, hide_index=True)
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
