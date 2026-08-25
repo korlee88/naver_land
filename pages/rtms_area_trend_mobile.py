@@ -17,8 +17,7 @@ from utils_area_trend import (
     CHART_CONFIG, PALETTE, JEONSE_COLOR, KOSIS_CAT_LABEL, KOSIS_CAT_ICON, KOSIS_CAT_SHORT,
     lawd_label, load_data, load_jeonse, load_kosis,
     monthly_stats, weekly_stats, trend_signal,
-    kosis_city_keyword, match_kosis_region, kosis_summary,
-    price_year_series, price_kosis_corr, corr_label, indexed_trend_chart,
+    build_kosis_series_for_region, price_year_series, corr_label, indexed_trend_chart,
     make_chart, pick_one,
 )
 
@@ -196,6 +195,35 @@ st.plotly_chart(fig_overlay, use_container_width=True, config=CHART_CONFIG)
 
 st.divider()
 
+# ── 종합 분석 — 가격 × 인구·주택·경제 (한눈에 보이는 지역 하나) ──
+st.markdown("##### 종합 분석 — 가격 × 인구·주택·경제")
+df_kosis_all = load_kosis()
+if len(selected_regions) > 1:
+    synth_region = st.selectbox("분석 지역", selected_regions, key="am_synth_region")
+else:
+    synth_region = selected_regions[0]
+    st.caption(f"ℹ️ {synth_region}")
+
+if df_kosis_all.empty:
+    st.info("아직 수집된 KOSIS 통계가 없습니다.")
+    st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
+else:
+    dfc_synth = _filter(synth_region)
+    price_yearly_synth = (
+        price_year_series(dfc_synth) if not dfc_synth.empty
+        else pd.DataFrame(columns=["year", "price"])
+    )
+    series_synth, notes_synth, _ = build_kosis_series_for_region(synth_region, dfc_synth, df_kosis_all)
+    st.caption("  ·  ".join(notes_synth) if notes_synth else "매칭되는 통계 없음")
+    fig_synth = indexed_trend_chart(price_yearly_synth, series_synth, height=250)
+    if fig_synth is None:
+        st.caption("지수 비교에 필요한 연도별 데이터가 부족합니다.")
+    else:
+        st.plotly_chart(fig_synth, use_container_width=True, config=CHART_CONFIG, key="am_synth_chart")
+    st.caption("기준연도=100 지수 · 아파트 외 주택유형 포함(인허가실적)")
+
+st.divider()
+
 # ── 지역별 상세 (1열 · 매매/전세 탭) ─────────────────────────
 with st.expander("📊 지역별 상세 — 매매·전세", expanded=len(selected_regions) == 1):
     for region in selected_regions:
@@ -255,7 +283,6 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)", exp
     )
     st.caption("⚠️ 주택 인허가실적은 아파트 외 단독·연립·다세대까지 합친 값입니다.")
 
-    df_kosis_all = load_kosis()
     if df_kosis_all.empty:
         st.info("아직 수집된 KOSIS 통계가 없습니다.")
         st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
@@ -269,31 +296,17 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)", exp
         corr_collect: dict[str, list[float]] = {k: [] for k in KOSIS_CAT_LABEL}
         for region in selected_regions:
             st.markdown(f"**{region}**")
-            city, gu = kosis_city_keyword(region)
             dfc_price = _filter(region)
             price_yearly = (
                 price_year_series(dfc_price) if not dfc_price.empty
                 else pd.DataFrame(columns=["year", "price"])
             )
-
-            series, notes = {}, []
-            for cat_key in KOSIS_CAT_LABEL:
-                cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
-                matched = match_kosis_region(city, gu, sorted(cat_df["region_name"].dropna().unique()))
-                summary = kosis_summary(cat_df, matched) if matched else None
-                if not summary:
-                    if cat_key in shown_cats:
-                        notes.append(f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_SHORT[cat_key]} 없음")
-                    continue
-                r, _ = price_kosis_corr(dfc_price, summary["df"])
+            series, notes, corrs = build_kosis_series_for_region(
+                region, dfc_price, df_kosis_all, shown_cats=shown_cats,
+            )
+            for cat_key, r in corrs.items():
                 if r is not None:
                     corr_collect[cat_key].append(r)
-                if cat_key in shown_cats:
-                    series[cat_key] = {"df": summary["df"], "r": r}
-                    unit_s = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
-                    unit = unit_s.iloc[0] if not unit_s.empty else ""
-                    yoy = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
-                    notes.append(f"{KOSIS_CAT_ICON[cat_key]} {summary['latest_value']:,.0f}{unit}{yoy}")
 
             st.caption("  ·  ".join(notes) if notes else "매칭되는 통계 없음")
             fig_idx = indexed_trend_chart(price_yearly, series, height=230)

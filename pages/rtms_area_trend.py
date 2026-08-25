@@ -20,8 +20,7 @@ from utils_area_trend import (
     CHART_CONFIG, PALETTE, JEONSE_COLOR, KOSIS_CAT_LABEL, KOSIS_CAT_ICON, KOSIS_CAT_SHORT,
     lawd_label, load_data, load_jeonse, load_kosis,
     monthly_stats, weekly_stats, trend_signal,
-    kosis_city_keyword, match_kosis_region, kosis_summary,
-    price_year_series, price_kosis_corr, corr_label, indexed_trend_chart,
+    build_kosis_series_for_region, price_year_series, corr_label, indexed_trend_chart,
     make_chart, pick_one,
 )
 
@@ -127,52 +126,80 @@ def _filter_jeonse(lawd_codes: list[str]) -> pd.DataFrame:
     return jdf
 
 
-# ── 종합 비교 차트 (매매 평균가 라인 오버레이) ─────────────────
-st.subheader("종합 비교 — 매매 평균가 추이")
-compare_mode = pick_one(
-    "표시 방식", ["변동률(%)", "절대가격(억)"], "area_compare_mode", default="변동률(%)",
-)
-if compare_mode == "변동률(%)":
-    st.caption("ℹ️ 지역마다 가격대가 달라 절대가격으로 겹쳐 보면 등락이 눌려 보입니다 — 각 지역의 첫 주를 100으로 놓고 변동률로 비교합니다.")
+# ── 종합 비교 (다지역 가격 비교 + 가격×배경지표 종합분석) ────────
+st.subheader("종합 비교")
+df_kosis_all = load_kosis()
+comp_col, synth_col = st.columns(2)
 
-fig_overlay = go.Figure()
-region_stats: dict[str, pd.DataFrame] = {}
-for i, region in enumerate(selected_regions):
-    dfc = _filter(region)
-    if dfc.empty:
-        continue
-    stats = weekly_stats(dfc)
-    region_stats[region] = stats
-    color = PALETTE[i % len(PALETTE)]
+with comp_col:
+    st.markdown("**다지역 가격 비교 — 매매 평균가**")
+    compare_mode = pick_one(
+        "표시 방식", ["변동률(%)", "절대가격(억)"], "area_compare_mode", default="변동률(%)",
+    )
     if compare_mode == "변동률(%)":
-        base = stats["avg"].iloc[0]
-        y_vals = stats["avg"] / base * 100 if base else stats["avg"]
-        hover = f"{region}<br>" + "%{x|%Y-%m-%d} %{y:.1f} (시작주=100)<extra></extra>"
+        st.caption("ℹ️ 지역마다 가격대가 달라 절대가격으로 겹쳐 보면 등락이 눌려 보입니다 — 각 지역의 첫 주를 100으로 놓고 변동률로 비교합니다.")
+
+    fig_overlay = go.Figure()
+    region_stats: dict[str, pd.DataFrame] = {}
+    for i, region in enumerate(selected_regions):
+        dfc = _filter(region)
+        if dfc.empty:
+            continue
+        stats = weekly_stats(dfc)
+        region_stats[region] = stats
+        color = PALETTE[i % len(PALETTE)]
+        if compare_mode == "변동률(%)":
+            base = stats["avg"].iloc[0]
+            y_vals = stats["avg"] / base * 100 if base else stats["avg"]
+            hover = f"{region}<br>" + "%{x|%Y-%m-%d} %{y:.1f} (시작주=100)<extra></extra>"
+        else:
+            y_vals = stats["avg"]
+            hover = f"{region}<br>" + "%{x|%Y-%m-%d} 평균 %{y:.2f}억<extra></extra>"
+        fig_overlay.add_trace(go.Scatter(
+            x=stats["ym"], y=y_vals, name=region,
+            line=dict(color=color, width=2), marker=dict(size=4),
+            hovertemplate=hover,
+        ))
+    fig_overlay.update_layout(
+        height=320,
+        margin=dict(l=8, r=8, t=8, b=8),
+        plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(orientation="h", x=0, y=1.1, font=dict(size=11)),
+        hovermode="x unified",
+    )
+    fig_overlay.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
+    if compare_mode == "변동률(%)":
+        fig_overlay.add_hline(y=100, line=dict(color="#999", width=1, dash="dot"))
+        fig_overlay.update_yaxes(title_text="변동률 (시작주=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
     else:
-        y_vals = stats["avg"]
-        hover = f"{region}<br>" + "%{x|%Y-%m-%d} 평균 %{y:.2f}억<extra></extra>"
-    fig_overlay.add_trace(go.Scatter(
-        x=stats["ym"], y=y_vals, name=region,
-        line=dict(color=color, width=2), marker=dict(size=4),
-        hovertemplate=hover,
-    ))
-fig_overlay.update_layout(
-    height=300,
-    margin=dict(l=8, r=8, t=8, b=8),
-    plot_bgcolor="white", paper_bgcolor="white",
-    legend=dict(orientation="h", x=0, y=1.1, font=dict(size=11)),
-    hovermode="x unified",
-)
-fig_overlay.update_xaxes(tickformat="%y.%m", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-if compare_mode == "변동률(%)":
-    fig_overlay.add_hline(y=100, line=dict(color="#999", width=1, dash="dot"))
-    fig_overlay.update_yaxes(title_text="변동률 (시작주=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-else:
-    fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-# 전폭이면 3.5:1로 납작해져 등락이 눌려 보인다 — 반폭으로 줄여 가로세로비를 맞춘다
-overlay_col, _ = st.columns(2)
-with overlay_col:
+        fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
     st.plotly_chart(fig_overlay, use_container_width=True, config=CHART_CONFIG)
+
+with synth_col:
+    st.markdown("**종합 분석 — 가격 × 인구·주택·경제**")
+    if len(selected_regions) > 1:
+        synth_region = st.selectbox("분석 지역", selected_regions, key="area_synth_region")
+    else:
+        synth_region = selected_regions[0]
+        st.caption(f"ℹ️ {synth_region}")
+
+    if df_kosis_all.empty:
+        st.info("아직 수집된 KOSIS 통계가 없습니다.")
+        st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
+    else:
+        dfc_synth = _filter(synth_region)
+        price_yearly_synth = (
+            price_year_series(dfc_synth) if not dfc_synth.empty
+            else pd.DataFrame(columns=["year", "price"])
+        )
+        series_synth, notes_synth, _ = build_kosis_series_for_region(synth_region, dfc_synth, df_kosis_all)
+        st.caption("  ·  ".join(notes_synth) if notes_synth else "매칭되는 통계 없음")
+        fig_synth = indexed_trend_chart(price_yearly_synth, series_synth, height=280)
+        if fig_synth is None:
+            st.caption("지수 비교에 필요한 연도별 데이터가 부족합니다.")
+        else:
+            st.plotly_chart(fig_synth, use_container_width=True, config=CHART_CONFIG, key="area_synth_chart")
+        st.caption("기준연도=100 지수 · 아파트 외 주택유형 포함(인허가실적) · 아래 '지역 통계'에서 지역별 상세와 상관계수를 볼 수 있습니다.")
 
 st.divider()
 
@@ -247,7 +274,6 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS) · �
     )
     st.caption("⚠️ 주택 인허가실적은 이 앱이 다루는 **아파트만이 아니라** 단독·연립·다세대 등 모든 주택 유형을 합친 값입니다 (KOSIS 통계표 특성상 유형별 분리 항목을 아직 확인 못함) — 다른 두 지표보다 해석에 유의하세요.")
 
-    df_kosis_all = load_kosis()
     if df_kosis_all.empty:
         st.info("아직 수집된 KOSIS 통계가 없습니다.")
         st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
@@ -266,35 +292,18 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS) · �
             for col, region in zip(cols, row):
                 with col:
                     st.markdown(f"**{region}**")
-                    city, gu = kosis_city_keyword(region)
                     dfc_price = _filter(region)
                     price_yearly = (
                         price_year_series(dfc_price) if not dfc_price.empty
                         else pd.DataFrame(columns=["year", "price"])
                     )
-
-                    series, notes = {}, []
-                    for cat_key in KOSIS_CAT_LABEL:
-                        cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
-                        matched = match_kosis_region(city, gu, sorted(cat_df["region_name"].dropna().unique()))
-                        summary = kosis_summary(cat_df, matched) if matched else None
-                        if not summary:
-                            if cat_key in shown_cats:
-                                notes.append(f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_SHORT[cat_key]} 통계 없음")
-                            continue
-                        r, _ = price_kosis_corr(dfc_price, summary["df"])
-                        # 상관계수는 표시 여부와 무관하게 모아야 아래 종합 표가 지표 선택에 흔들리지 않는다
+                    series, notes, corrs = build_kosis_series_for_region(
+                        region, dfc_price, df_kosis_all, shown_cats=shown_cats,
+                    )
+                    # 상관계수는 표시 여부와 무관하게 모아야 아래 종합 표가 지표 선택에 흔들리지 않는다
+                    for cat_key, r in corrs.items():
                         if r is not None:
                             corr_collect[cat_key].append(r)
-                        if cat_key in shown_cats:
-                            series[cat_key] = {"df": summary["df"], "r": r}
-                            unit_s = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
-                            unit = unit_s.iloc[0] if not unit_s.empty else ""
-                            yoy = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
-                            notes.append(
-                                f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_SHORT[cat_key]} "
-                                f"{summary['latest_value']:,.0f}{unit}{yoy}"
-                            )
 
                     st.caption("  ·  ".join(notes) if notes else "매칭되는 통계 없음")
                     fig_idx = indexed_trend_chart(price_yearly, series)

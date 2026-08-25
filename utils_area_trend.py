@@ -242,6 +242,42 @@ def kosis_summary(cat_df: pd.DataFrame, region_name: str) -> dict | None:
     return {"df": dfc, "latest_value": latest["value"], "yoy": yoy}
 
 
+def build_kosis_series_for_region(
+    region: str, dfc_price: pd.DataFrame, df_kosis_all: pd.DataFrame,
+    shown_cats: list[str] | None = None,
+) -> tuple[dict, list[str], dict[str, float | None]]:
+    """지역 하나에 대해 KOSIS 3개 카테고리를 매칭·상관분석까지 한 번에 처리.
+
+    상관계수는 shown_cats와 무관하게 항상 3개 다 계산한다 — "종합 상관관계" 요약표가
+    사용자의 화면 표시 선택에 따라 흔들리면 안 되기 때문(표시는 취향, 통계는 사실).
+    반환: (지수차트에 넣을 series dict, 카드에 표시할 요약 문구 리스트, 카테고리별 r)
+    """
+    city, gu = kosis_city_keyword(region)
+    shown = shown_cats if shown_cats is not None else list(KOSIS_CAT_LABEL)
+    series, notes, corrs = {}, [], {}
+    for cat_key in KOSIS_CAT_LABEL:
+        cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
+        matched = match_kosis_region(city, gu, sorted(cat_df["region_name"].dropna().unique()))
+        summary = kosis_summary(cat_df, matched) if matched else None
+        if not summary:
+            corrs[cat_key] = None
+            if cat_key in shown:
+                notes.append(f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_SHORT[cat_key]} 통계 없음")
+            continue
+        r, _ = price_kosis_corr(dfc_price, summary["df"])
+        corrs[cat_key] = r
+        if cat_key in shown:
+            series[cat_key] = {"df": summary["df"], "r": r}
+            unit_s = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
+            unit = unit_s.iloc[0] if not unit_s.empty else ""
+            yoy = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
+            notes.append(
+                f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_SHORT[cat_key]} "
+                f"{summary['latest_value']:,.0f}{unit}{yoy}"
+            )
+    return series, notes, corrs
+
+
 def price_year_series(dfc: pd.DataFrame) -> pd.DataFrame:
     """지역 매매 실거래(dfc, eok/ym 컬럼)를 KOSIS와 맞춰 연도별 평균가로 집계."""
     d = dfc.assign(year=dfc["ym"].dt.year)
