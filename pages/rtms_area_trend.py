@@ -222,9 +222,9 @@ def _price_kosis_overlay_chart(price_yearly: pd.DataFrame, kosis_yearly: pd.Data
         connectgaps=True,
     ), secondary_y=True)
     fig.update_layout(
-        height=190, margin=dict(l=4, r=4, t=4, b=4),
+        height=140, margin=dict(l=4, r=4, t=4, b=4),
         plot_bgcolor="white", paper_bgcolor="white",
-        legend=dict(orientation="h", x=0, y=1.28, font=dict(size=9)),
+        legend=dict(orientation="h", x=0, y=1.32, font=dict(size=9)),
         hovermode="x unified",
     )
     fig.update_xaxes(dtick=1, tickfont=dict(size=9), showgrid=True, gridcolor="#f5f5f5", fixedrange=True)
@@ -355,7 +355,7 @@ def make_chart(
     매매·전세를 하나의 차트에 욱여넣으면 범례가 제목과 겹쳐 매매용/전세용을 각각 별도로 그린다."""
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True,
-        row_heights=[0.7, 0.3], vertical_spacing=0.06,
+        row_heights=[0.72, 0.28], vertical_spacing=0.05,
         subplot_titles=[price_title, ""],
     )
     _price_band_traces(fig, stats, color, row=1, name_min=min_label, name_avg=avg_label,
@@ -363,8 +363,8 @@ def make_chart(
     _volume_bar_trace(fig, stats, color, row=2, name=vol_name, date_fmt=date_fmt)
 
     fig.update_layout(
-        height=380,
-        margin=dict(l=8, r=8, t=32, b=8),
+        height=270,
+        margin=dict(l=8, r=8, t=28, b=4),
         plot_bgcolor="white", paper_bgcolor="white",
         legend=dict(orientation="h", x=0, y=1.14, font=dict(size=10)),
         hovermode="x unified",
@@ -520,7 +520,7 @@ for i, region in enumerate(selected_regions):
         hovertemplate=hover,
     ))
 fig_overlay.update_layout(
-    height=380,
+    height=300,
     margin=dict(l=8, r=8, t=8, b=8),
     plot_bgcolor="white", paper_bgcolor="white",
     legend=dict(orientation="h", x=0, y=1.1, font=dict(size=11)),
@@ -537,141 +537,145 @@ st.plotly_chart(fig_overlay, use_container_width=True, config={"displayModeBar":
 st.divider()
 
 # ── 지역별 상세 카드 (2열 · 매매+전세+거래량) ──────────────────
-st.subheader("지역별 상세")
-COLS = 2
-rows_layout = [selected_regions[i:i + COLS] for i in range(0, len(selected_regions), COLS)]
+with st.expander("📊 지역별 상세 차트 — 매매·전세 (연도 요약은 아래 표에 있습니다)", expanded=False):
+    COLS = 2
+    rows_layout = [selected_regions[i:i + COLS] for i in range(0, len(selected_regions), COLS)]
 
-for row in rows_layout:
-    cols = st.columns(len(row))
-    for col, region in zip(cols, row):
-        with col:
-            dfc = _filter(region)
-            color = PALETTE[selected_regions.index(region) % len(PALETTE)]
-            if dfc.empty:
-                st.markdown(f"**{region}**")
-                st.caption("해당 조건 데이터 없음")
-                continue
-            stats = region_stats.get(region) if region in region_stats else weekly_stats(dfc)
-            latest = stats.iloc[-1]
-            emoji, trend_txt, trend_color = trend_signal(stats, window=4)
-            n_complex = dfc["apt_name"].nunique()
+    for row in rows_layout:
+        cols = st.columns(len(row))
+        for col, region in zip(cols, row):
+            with col:
+                dfc = _filter(region)
+                color = PALETTE[selected_regions.index(region) % len(PALETTE)]
+                if dfc.empty:
+                    st.markdown(f"**{region}**")
+                    st.caption("해당 조건 데이터 없음")
+                    continue
+                stats = region_stats.get(region) if region in region_stats else weekly_stats(dfc)
+                latest = stats.iloc[-1]
+                emoji, trend_txt, trend_color = trend_signal(stats, window=4)
+                n_complex = dfc["apt_name"].nunique()
 
-            lawd_codes = dfc["lawd_cd"].unique().tolist()
-            jdf = _filter_jeonse(lawd_codes)
-            jeonse_stats = monthly_stats(jdf, col="deposit_eok") if not jdf.empty else None
+                lawd_codes = dfc["lawd_cd"].unique().tolist()
+                jdf = _filter_jeonse(lawd_codes)
+                jeonse_stats = monthly_stats(jdf, col="deposit_eok") if not jdf.empty else None
 
-            st.markdown(
-                f"**{region}** &nbsp; "
-                f"<span style='color:{trend_color};font-size:13px'>{emoji} {trend_txt}</span>",
-                unsafe_allow_html=True,
-            )
-            cap = (
-                f"포함 단지 {n_complex}개  |  "
-                f"매매 최저 {latest['min']:.2f}억 · 평균 {latest['avg']:.2f}억 · 최고 {latest['max']:.2f}억"
-            )
-            if jeonse_stats is not None:
-                j_latest = jeonse_stats.iloc[-1]
-                cap += f"  ·  전세 평균 {j_latest['avg']:.2f}억"
-            st.caption(cap)
-
-            fig = make_chart(
-                stats, color, price_title="매매가(억) · 주 단위", vol_name="매매건수",
-                ma_label="4주 이동평균", date_fmt="%Y-%m-%d",
-            )
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
-
-            if jeonse_stats is not None:
-                fig_j = make_chart(
-                    jeonse_stats, JEONSE_COLOR,
-                    price_title="전세가(억) · 월 단위", vol_name="전세건수",
-                    min_label="전세최저", avg_label="전세평균", ma_label="3개월 이동평균",
+                st.markdown(
+                    f"**{region}** &nbsp; "
+                    f"<span style='color:{trend_color};font-size:13px'>{emoji} {trend_txt}</span>",
+                    unsafe_allow_html=True,
                 )
-                st.plotly_chart(fig_j, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
+                cap = (
+                    f"포함 단지 {n_complex}개  |  "
+                    f"매매 최저 {latest['min']:.2f}억 · 평균 {latest['avg']:.2f}억 · 최고 {latest['max']:.2f}억"
+                )
+                if jeonse_stats is not None:
+                    j_latest = jeonse_stats.iloc[-1]
+                    cap += f"  ·  전세 평균 {j_latest['avg']:.2f}억"
+                st.caption(cap)
+
+                fig = make_chart(
+                    stats, color, price_title="매매가(억) · 주 단위", vol_name="매매건수",
+                    ma_label="4주 이동평균", date_fmt="%Y-%m-%d",
+                )
+                chart_cfg = {"displayModeBar": False, "scrollZoom": False, "staticPlot": False}
+                if jeonse_stats is not None:
+                    # 매매+전세를 둘 다 항상 펼쳐두면 세로 공간을 두 배로 먹어 탭으로 전환
+                    fig_j = make_chart(
+                        jeonse_stats, JEONSE_COLOR,
+                        price_title="전세가(억) · 월 단위", vol_name="전세건수",
+                        min_label="전세최저", avg_label="전세평균", ma_label="3개월 이동평균",
+                    )
+                    tab_sale, tab_jeonse = st.tabs(["📈 매매", "🏠 전세"])
+                    with tab_sale:
+                        st.plotly_chart(fig, use_container_width=True, config=chart_cfg, key=f"price_sale_{region}")
+                    with tab_jeonse:
+                        st.plotly_chart(fig_j, use_container_width=True, config=chart_cfg, key=f"price_jeonse_{region}")
+                else:
+                    st.plotly_chart(fig, use_container_width=True, config=chart_cfg, key=f"price_sale_{region}")
 
 # ── 지역 통계 (인구·주택·경제) ───────────────────────────────
-st.divider()
-st.subheader("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)")
-st.caption(
-    "가격 추이만으로는 안 보이는 배경 지표입니다 — 인구 증감(수요), 주택 인허가실적(향후 공급), "
-    "가동사업자 수(지역 경제 활력)를 함께 보면 판단에 참고가 됩니다. KOSIS 기준 **연 단위** 통계입니다. "
-    "실선(왼쪽 축)은 그 지역 매매평균가, 점선(오른쪽 축)은 KOSIS 지표 — 두 선이 같은 방향으로 움직이는지 "
-    "직접 눈으로 비교할 수 있습니다. 아래 **가격 상관**은 그 상관관계를 계수(r)로 요약한 값이며, "
-    "연도 수가 적어(보통 5~10개) 참고용으로만 보세요."
-)
-st.caption("⚠️ 주택 인허가실적은 이 앱이 다루는 **아파트만이 아니라** 단독·연립·다세대 등 모든 주택 유형을 합친 값입니다 (KOSIS 통계표 특성상 유형별 분리 항목을 아직 확인 못함) — 다른 두 지표보다 해석에 유의하세요.")
+with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS) · 가격과의 상관관계", expanded=False):
+    st.caption(
+        "가격 추이만으로는 안 보이는 배경 지표입니다 — 인구 증감(수요), 주택 인허가실적(향후 공급), "
+        "가동사업자 수(지역 경제 활력)를 함께 보면 판단에 참고가 됩니다. KOSIS 기준 **연 단위** 통계입니다. "
+        "실선(왼쪽 축)은 그 지역 매매평균가, 점선(오른쪽 축)은 KOSIS 지표 — 두 선이 같은 방향으로 움직이는지 "
+        "직접 눈으로 비교할 수 있습니다. 아래 **가격 상관**은 그 상관관계를 계수(r)로 요약한 값이며, "
+        "연도 수가 적어(보통 5~10개) 참고용으로만 보세요."
+    )
+    st.caption("⚠️ 주택 인허가실적은 이 앱이 다루는 **아파트만이 아니라** 단독·연립·다세대 등 모든 주택 유형을 합친 값입니다 (KOSIS 통계표 특성상 유형별 분리 항목을 아직 확인 못함) — 다른 두 지표보다 해석에 유의하세요.")
 
-df_kosis_all = load_kosis()
-if df_kosis_all.empty:
-    st.info("아직 수집된 KOSIS 통계가 없습니다.")
-    st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
-else:
-    corr_collect: dict[str, list[float]] = {k: [] for k in KOSIS_CAT_LABEL}
-    # 이중축 차트는 폭이 좁으면 알아보기 어려워 지역 1개당 한 행 전체를 쓴다
-    for region in selected_regions:
-        st.markdown(f"**{region}**")
-        city, gu = _kosis_city_keyword(region)
-        region_color = PALETTE[selected_regions.index(region) % len(PALETTE)]
-        dfc_price = _filter(region)
-        price_yearly = _price_year_series(dfc_price) if not dfc_price.empty else pd.DataFrame(columns=["year", "price"])
-        metric_cols = st.columns(len(KOSIS_CAT_LABEL))
-        for (cat_key, mcol) in zip(KOSIS_CAT_LABEL, metric_cols):
-            with mcol:
-                icon, label = KOSIS_CAT_ICON[cat_key], KOSIS_CAT_LABEL[cat_key]
-                cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
-                kosis_regions = sorted(cat_df["region_name"].dropna().unique())
-                matched = _match_kosis_region(city, gu, kosis_regions)
-                summary = _kosis_summary(cat_df, matched) if matched else None
-                st.caption(f"{icon} {label}")
-                if not summary:
-                    st.caption("매칭되는 통계 없음")
-                    continue
-                unit_series = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
-                unit = unit_series.iloc[0] if not unit_series.empty else ""
-                yoy_txt = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
-                st.markdown(f"**{summary['latest_value']:,.0f}{unit}**{yoy_txt}")
+    df_kosis_all = load_kosis()
+    if df_kosis_all.empty:
+        st.info("아직 수집된 KOSIS 통계가 없습니다.")
+        st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
+    else:
+        corr_collect: dict[str, list[float]] = {k: [] for k in KOSIS_CAT_LABEL}
+        # 이중축 차트는 폭이 좁으면 알아보기 어려워 지역 1개당 한 행 전체를 쓴다
+        for region in selected_regions:
+            st.markdown(f"**{region}**")
+            city, gu = _kosis_city_keyword(region)
+            region_color = PALETTE[selected_regions.index(region) % len(PALETTE)]
+            dfc_price = _filter(region)
+            price_yearly = _price_year_series(dfc_price) if not dfc_price.empty else pd.DataFrame(columns=["year", "price"])
+            metric_cols = st.columns(len(KOSIS_CAT_LABEL))
+            for (cat_key, mcol) in zip(KOSIS_CAT_LABEL, metric_cols):
+                with mcol:
+                    icon, label = KOSIS_CAT_ICON[cat_key], KOSIS_CAT_LABEL[cat_key]
+                    cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
+                    kosis_regions = sorted(cat_df["region_name"].dropna().unique())
+                    matched = _match_kosis_region(city, gu, kosis_regions)
+                    summary = _kosis_summary(cat_df, matched) if matched else None
+                    st.caption(f"{icon} {label}")
+                    if not summary:
+                        st.caption("매칭되는 통계 없음")
+                        continue
+                    unit_series = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
+                    unit = unit_series.iloc[0] if not unit_series.empty else ""
+                    yoy_txt = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
+                    st.markdown(f"**{summary['latest_value']:,.0f}{unit}**{yoy_txt}")
 
-                if not price_yearly.empty and len(summary["df"]) >= 2:
-                    fig_ov = _price_kosis_overlay_chart(price_yearly, summary["df"], region_color, unit)
-                    st.plotly_chart(
-                        fig_ov, use_container_width=True,
-                        config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
-                        key=f"kosis_overlay_{region}_{cat_key}",
-                    )
-                elif len(summary["df"]) >= 2:
-                    fig_sp = _kosis_sparkline(summary["df"], region_color, unit)
-                    st.plotly_chart(
-                        fig_sp, use_container_width=True,
-                        config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
-                        key=f"kosis_spark_{region}_{cat_key}",
-                    )
+                    if not price_yearly.empty and len(summary["df"]) >= 2:
+                        fig_ov = _price_kosis_overlay_chart(price_yearly, summary["df"], region_color, unit)
+                        st.plotly_chart(
+                            fig_ov, use_container_width=True,
+                            config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+                            key=f"kosis_overlay_{region}_{cat_key}",
+                        )
+                    elif len(summary["df"]) >= 2:
+                        fig_sp = _kosis_sparkline(summary["df"], region_color, unit)
+                        st.plotly_chart(
+                            fig_sp, use_container_width=True,
+                            config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+                            key=f"kosis_spark_{region}_{cat_key}",
+                        )
 
-                r, n_yr = _price_kosis_corr(dfc_price, summary["df"])
-                if r is None:
-                    st.caption(f"가격 상관 — 표본 부족({n_yr}개년)")
-                else:
-                    corr_txt, corr_color = _corr_label(r)
-                    corr_collect[cat_key].append(r)
-                    st.markdown(
-                        f"<span style='font-size:12px;color:{corr_color}'>가격 상관: {corr_txt}</span>",
-                        unsafe_allow_html=True,
-                    )
-        st.markdown("")
+                    r, n_yr = _price_kosis_corr(dfc_price, summary["df"])
+                    if r is None:
+                        st.caption(f"가격 상관 — 표본 부족({n_yr}개년)")
+                    else:
+                        corr_txt, corr_color = _corr_label(r)
+                        corr_collect[cat_key].append(r)
+                        st.markdown(
+                            f"<span style='font-size:12px;color:{corr_color}'>가격 상관: {corr_txt}</span>",
+                            unsafe_allow_html=True,
+                        )
 
-    corr_summary_rows = []
-    for cat_key, rs in corr_collect.items():
-        if not rs:
-            continue
-        avg_r = sum(rs) / len(rs)
-        corr_txt, _ = _corr_label(avg_r)
-        corr_summary_rows.append({
-            "지표": f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_LABEL[cat_key]}",
-            "평균 상관계수": f"{avg_r:+.2f}",
-            "해석": corr_txt,
-            "표본 지역 수": len(rs),
-        })
-    if corr_summary_rows:
-        st.markdown("**📎 종합 — 선택 지역 전체의 평균 상관관계**")
-        st.dataframe(pd.DataFrame(corr_summary_rows), use_container_width=True, hide_index=True)
+        corr_summary_rows = []
+        for cat_key, rs in corr_collect.items():
+            if not rs:
+                continue
+            avg_r = sum(rs) / len(rs)
+            corr_txt, _ = _corr_label(avg_r)
+            corr_summary_rows.append({
+                "지표": f"{KOSIS_CAT_ICON[cat_key]} {KOSIS_CAT_LABEL[cat_key]}",
+                "평균 상관계수": f"{avg_r:+.2f}",
+                "해석": corr_txt,
+                "표본 지역 수": len(rs),
+            })
+        if corr_summary_rows:
+            st.markdown("**📎 종합 — 선택 지역 전체의 평균 상관관계**")
+            st.dataframe(pd.DataFrame(corr_summary_rows), use_container_width=True, hide_index=True)
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
