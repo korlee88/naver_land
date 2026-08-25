@@ -93,6 +93,92 @@ def load_data() -> pd.DataFrame:
     return df
 
 
+KOSIS_CAT_LABEL = {"population": "인구·세대수", "housing": "주택 인허가실적", "business": "가동사업자수"}
+KOSIS_CAT_ICON = {"population": "👥", "housing": "🏗", "business": "🏢"}
+
+
+@st.cache_data(ttl=300)
+def load_kosis() -> pd.DataFrame:
+    """KOSIS 통계 (pages/kosis_fetch.py가 수집한 kosis_stats). 시군구 단위 연도별 값."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        df = pd.read_sql("""
+            SELECT category, region_name, sub_label, unit_name, prd_de, value
+            FROM kosis_stats
+        """, conn)
+        conn.close()
+    except Exception:
+        return pd.DataFrame()
+    if df.empty:
+        return df
+    df["year"] = pd.to_numeric(df["prd_de"], errors="coerce")
+    df = df.dropna(subset=["year"])
+    df["year"] = df["year"].astype(int)
+    return df
+
+
+def _prefer_total_sub(df: pd.DataFrame) -> pd.DataFrame:
+    """세부구분(성별/산업분류 등)이 있으면 '계/전체/합계' 같은 총계 행만 남긴다."""
+    subs = [s for s in df["sub_label"].dropna().unique() if s]
+    if not subs:
+        return df
+    total_like = [s for s in subs if s in ("계", "소계", "전체", "합계")]
+    keep = total_like[0] if total_like else subs[0]
+    return df[df["sub_label"].isna() | (df["sub_label"] == keep)]
+
+
+def _kosis_city_keyword(region_key: str) -> tuple[str, str | None]:
+    """'경기 화성시 동탄구' → ('화성시', '동탄구'). 시/군 단위면 구는 None."""
+    parts = region_key.split(" ")
+    city = next((p for p in parts if p.endswith("시") or p.endswith("군")), parts[-1])
+    gu = next((p for p in parts if p.endswith("구") and p != city), None)
+    return city, gu
+
+
+def _match_kosis_region(city: str, gu: str | None, kosis_regions: list[str]) -> str | None:
+    """rtms 지역명(city/gu)에 가장 가까운 KOSIS region_name을 찾는다.
+    KOSIS 지역명의 정확한 표기(공백 유무 등)를 확신할 수 없어 부분일치로 매칭한다."""
+    if gu:
+        combo = [r for r in kosis_regions if city in r and gu in r]
+        if combo:
+            return sorted(combo, key=len)[0]
+    exact = [r for r in kosis_regions if r == city]
+    if exact:
+        return exact[0]
+    contains = [r for r in kosis_regions if city in r]
+    if contains:
+        return sorted(contains, key=len)[0]  # 가장 짧은 = 시/군 전체 집계로 추정
+    return None
+
+
+def _kosis_summary(cat_df: pd.DataFrame, region_name: str) -> dict | None:
+    dfc = cat_df[cat_df["region_name"] == region_name].sort_values("year")
+    dfc = _prefer_total_sub(dfc)
+    if dfc.empty:
+        return None
+    dfc = dfc.groupby("year", as_index=False)["value"].sum()
+    latest = dfc.iloc[-1]
+    yoy = None
+    if len(dfc) >= 2:
+        prev = dfc.iloc[-2]
+        if prev["value"]:
+            yoy = (latest["value"] - prev["value"]) / prev["value"] * 100
+    return {"df": dfc, "latest_value": latest["value"], "yoy": yoy}
+
+
+def _kosis_sparkline(df: pd.DataFrame, color: str, unit: str) -> go.Figure:
+    fig = go.Figure(go.Scatter(
+        x=df["year"], y=df["value"], mode="lines+markers",
+        line=dict(color=color, width=2), marker=dict(size=4),
+        hovertemplate="%{x} " + f"{unit}<br>" + "%{y:,.0f}<extra></extra>",
+    ))
+    fig.update_layout(height=80, margin=dict(l=0, r=0, t=2, b=2),
+                       plot_bgcolor="white", paper_bgcolor="white", showlegend=False)
+    fig.update_xaxes(visible=False, fixedrange=True)
+    fig.update_yaxes(visible=False, fixedrange=True)
+    return fig
+
+
 @st.cache_data(ttl=300)
 def load_jeonse() -> pd.DataFrame:
     """전월세 (rtms_jeonse) 중 순수 전세(월세 없는 보증금만) 거래만. dong 컬럼이 없어 시/구 단위만 가능."""
@@ -447,6 +533,51 @@ for row in rows_layout:
                     min_label="전세최저", avg_label="전세평균", ma_label="3개월 이동평균",
                 )
                 st.plotly_chart(fig_j, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
+
+# ── 지역 통계 (인구·주택·경제) ───────────────────────────────
+st.divider()
+st.subheader("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)")
+st.caption(
+    "가격 추이만으로는 안 보이는 배경 지표입니다 — 인구 증감(수요), 주택 인허가실적(향후 공급), "
+    "가동사업자 수(지역 경제 활력)를 함께 보면 판단에 참고가 됩니다. KOSIS 기준 **연 단위** 통계입니다."
+)
+
+df_kosis_all = load_kosis()
+if df_kosis_all.empty:
+    st.info("아직 수집된 KOSIS 통계가 없습니다.")
+    st.page_link("pages/kosis_fetch.py", label="KOSIS 통계 수집 메뉴로 이동", icon="🏢")
+else:
+    kosis_rows_layout = [selected_regions[i:i + COLS] for i in range(0, len(selected_regions), COLS)]
+    for row in kosis_rows_layout:
+        cols = st.columns(len(row))
+        for col, region in zip(cols, row):
+            with col:
+                st.markdown(f"**{region}**")
+                city, gu = _kosis_city_keyword(region)
+                region_color = PALETTE[selected_regions.index(region) % len(PALETTE)]
+                metric_cols = st.columns(len(KOSIS_CAT_LABEL))
+                for (cat_key, mcol) in zip(KOSIS_CAT_LABEL, metric_cols):
+                    with mcol:
+                        icon, label = KOSIS_CAT_ICON[cat_key], KOSIS_CAT_LABEL[cat_key]
+                        cat_df = df_kosis_all[df_kosis_all["category"] == cat_key]
+                        kosis_regions = sorted(cat_df["region_name"].dropna().unique())
+                        matched = _match_kosis_region(city, gu, kosis_regions)
+                        summary = _kosis_summary(cat_df, matched) if matched else None
+                        st.caption(f"{icon} {label}")
+                        if not summary:
+                            st.caption("매칭되는 통계 없음")
+                            continue
+                        unit_series = cat_df.loc[cat_df["region_name"] == matched, "unit_name"].dropna()
+                        unit = unit_series.iloc[0] if not unit_series.empty else ""
+                        yoy_txt = f" ({summary['yoy']:+.1f}%)" if summary["yoy"] is not None else ""
+                        st.markdown(f"**{summary['latest_value']:,.0f}{unit}**{yoy_txt}")
+                        if len(summary["df"]) >= 2:
+                            fig_sp = _kosis_sparkline(summary["df"], region_color, unit)
+                            st.plotly_chart(
+                                fig_sp, use_container_width=True,
+                                config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False},
+                                key=f"kosis_spark_{region}_{cat_key}",
+                            )
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
