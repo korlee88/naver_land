@@ -16,6 +16,7 @@ from datetime import date, datetime
 import requests
 import streamlit as st
 
+from db import push_kosis_to_sheet, restore_kosis_from_sheet, GAS_URL, GAS_TOKEN
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -101,7 +102,8 @@ def _fetch_kosis(cfg: dict, api_key: str, start_yr: int, end_yr: int, retries: i
         "prdSe":        "Y",
         "startPrdDe":   str(start_yr),
         "endPrdDe":     str(end_yr),
-        "outputFields": "TBL_NM NM ITM_NM UNIT_NM ",
+        # PRD_DE(수록시점)를 빼먹으면 어느 연도 값인지 알 수 없어 저장 시 전부 걸러짐 — 반드시 포함
+        "outputFields": "TBL_NM NM ITM_NM UNIT_NM PRD_DE ",
         "orgId":        cfg["org_id"],
         "tblId":        cfg["tbl_id"],
     }
@@ -222,7 +224,14 @@ if st.button("▶ 지금 수집 시작", type="primary", disabled=not api_key):
                 "sample": res["rows"][:5],
             }
 
+    total_saved = sum(r["saved"] for r in results.values())
+    backup_n, backup_err = (0, "")
+    if total_saved > 0:
+        with st.spinner("☁️ 구글시트에 자동 백업 중..."):
+            backup_n, backup_err = push_kosis_to_sheet()
+
     st.session_state["kosis_last_result"] = results
+    st.session_state["kosis_last_backup"] = {"n": backup_n, "err": backup_err}
     st.cache_data.clear()
     st.rerun()
 
@@ -242,6 +251,13 @@ if _res:
             st.success(f"**{r['label']}**: 전체 {r['total']}건 중 {r['saved']}건 새로 저장 (중복 제외)")
             with st.expander(f"🔍 {r['label']} 원본 응답 샘플 (5건) — 어느 필드가 지역명인지 직접 확인해보세요", expanded=(r["saved"] == 0)):
                 st.json(r["sample"] if r["sample"] else "응답에 item이 없습니다.")
+
+        _backup = st.session_state.get("kosis_last_backup")
+        if _backup:
+            if _backup["err"]:
+                st.error(f"⚠️ 구글시트 백업 실패: {_backup['err']}")
+            elif _backup["n"] > 0:
+                st.success(f"☁️ 구글시트 백업 완료 — {_backup['n']}건 (앱 재시작 시 자동 복원됨)")
 
 st.divider()
 st.subheader("저장된 KOSIS 통계 현황")
@@ -267,3 +283,57 @@ try:
         st.caption("아직 수집된 KOSIS 통계가 없습니다. 위에서 수집을 시작하세요.")
 except Exception as e:
     st.caption(f"현황 조회 오류: {e}")
+
+# ── 데이터 영구 저장 (구글시트 백업/복원) ─────────────────────
+st.divider()
+st.subheader("☁️ 데이터 영구 저장 (구글시트)")
+st.caption(
+    "이 앱의 DB는 서버가 잠들면 사라지는 임시 저장소(`/tmp`)입니다. "
+    "**저장 흐름**: 수집 완료 → 구글시트 **KOSIS통계** 탭에 자동 백업 → "
+    "앱이 다시 켜질 때 시트에서 자동 복원. 아래는 수동 확인/실행용 버튼입니다."
+)
+
+try:
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    n_kosis = conn.execute("SELECT COUNT(*) FROM kosis_stats").fetchone()[0]
+    conn.close()
+except Exception:
+    n_kosis = 0
+st.metric("현재 DB — KOSIS 통계", f"{n_kosis:,}건")
+
+b1, b2, b3 = st.columns(3)
+with b1:
+    if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=(n_kosis == 0)):
+        with st.spinner("구글시트로 백업 중..."):
+            n, err = push_kosis_to_sheet()
+        if err:
+            st.error(f"백업 실패: {err}")
+        else:
+            st.success(f"백업 완료 — {n}건")
+
+with b2:
+    if st.button("📥 시트에서 복원", use_container_width=True):
+        with st.spinner("구글시트에서 복원 중..."):
+            n = restore_kosis_from_sheet()
+        if n > 0:
+            st.success(f"복원 완료 — {n}건 (중복은 자동 제외)")
+            st.cache_data.clear()
+        else:
+            st.warning("복원된 데이터가 없습니다. 시트가 비어있거나 이미 모두 DB에 있는 데이터입니다.")
+
+with b3:
+    if st.button("🔍 시트 저장 상태 확인", use_container_width=True):
+        with st.spinner("구글시트 조회 중..."):
+            try:
+                r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": "KOSIS통계"}, timeout=60)
+                if r.status_code != 200:
+                    st.error(f"HTTP {r.status_code} — {r.text[:200]}")
+                else:
+                    data = r.json()
+                    if isinstance(data, dict) and data.get("error"):
+                        st.error(data["error"])
+                    else:
+                        rows = data.get("rows", [])
+                        st.info(f"**KOSIS통계** 탭: {len(rows):,}행 저장됨" if rows else "**KOSIS통계** 탭: 0행 (아직 백업 전이거나 비어있음)")
+            except Exception as e:
+                st.error(f"조회 실패: {e}")
