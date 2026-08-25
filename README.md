@@ -12,6 +12,7 @@
 | `rawdata.py` | 네이버 부동산 raw 텍스트 붙여넣기 → 정규식 파싱 → DB 저장 |
 | `db.py` | 모든 SQLite CRUD, Google Sheets 백업/복원 |
 | `utils_graph.py` | DB → DataFrame 변환, 일별 집계, 사이드바 필터, 추천 점수 계산 |
+| `utils_area_trend.py` | 구/동 단위 가격동향 PC·모바일 페이지 공용 로직 (데이터 로드/집계/KOSIS 상관분석/차트 빌더) |
 | `utils_uid.py` | 매물 고유 uid 생성 (SHA-1) |
 | `utils_auth.py` | 비밀번호 인증 (현재 비활성화) |
 | `utils_style.py` | 한글 폰트 전역 적용 (Noto Sans KR + Plotly) |
@@ -23,7 +24,8 @@
 | `pages/raw_manage.py` | 매물 데이터 배치 삭제/복원 관리 |
 | `pages/rtms_fetch.py` | 국토부 실거래가 수집 UI (매매·전월세) |
 | `pages/rtms_chart.py` | 국토부 실거래가 가격 추이 차트 (매매·전세) |
-| `pages/rtms_area_trend.py` | 국토부 실거래가 기반 구/동 단위 가격동향 비교 |
+| `pages/rtms_area_trend.py` | 국토부 실거래가 기반 구/동 단위 가격동향 비교 (PC) |
+| `pages/rtms_area_trend_mobile.py` | 구/동 단위 가격동향 비교 (모바일 최적화) |
 | `pages/kosis_fetch.py` | KOSIS(국가통계포털) 인구·주택·경제 통계 수집 UI |
 | `pages/kosis_trend.py` | KOSIS 통계 기반 인구·세대수/주택 인허가/사업자 현황 트렌드 |
 | `pages/naver_fetch.py` | 네이버 부동산 수집 UI |
