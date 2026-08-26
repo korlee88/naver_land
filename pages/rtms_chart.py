@@ -510,19 +510,22 @@ if _my:
 
 # ── 차트 ──────────────────────────────────────────────────────
 COLS = 2
-rows_layout = [selected[i:i+COLS] for i in range(0, len(selected), COLS)]
+# 평형/기간 필터 결과 데이터가 없는 단지는 빈 칸으로 남겨 옆 단지와 줄이 안 맞고 공간만
+# 차지하던 문제 — 그리드를 짜기 전에 미리 걸러내 빈 칸 자체가 생기지 않게 한다.
+_selected_data = {c: _filter(df_filtered, c) for c in selected}
+selected_with_data = [c for c in selected if not _selected_data[c].empty]
+_n_hidden = len(selected) - len(selected_with_data)
+if _n_hidden:
+    st.caption(f"ℹ️ {_n_hidden}개 단지는 현재 평형/기간 조건에 맞는 데이터가 없어 표에서 제외했습니다.")
+
+rows_layout = [selected_with_data[i:i+COLS] for i in range(0, len(selected_with_data), COLS)]
 
 for row in rows_layout:
     cols = st.columns(len(row))
     for col, cname in zip(cols, row):
         with col:
-            dfc   = _filter(df_filtered,cname)
+            dfc   = _selected_data[cname]
             color = PALETTE[apt_list.index(cname) % len(PALETTE)]
-
-            if dfc.empty:
-                st.markdown(f"**{cname}**")
-                st.caption("해당 조건 데이터 없음")
-                continue
 
             stats = monthly_stats(dfc)
             latest = stats.iloc[-1]
@@ -555,10 +558,8 @@ st.divider()
 st.subheader("단지별 최근 거래 요약")
 
 summary_rows = []
-for cname in selected:
-    dfc = _filter(df_filtered,cname)
-    if dfc.empty:
-        continue
+for cname in selected_with_data:
+    dfc = _selected_data[cname]
     stats = monthly_stats(dfc)
     latest_ym = dfc["ym"].max()
     latest    = dfc[dfc["ym"] == latest_ym]
