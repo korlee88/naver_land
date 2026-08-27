@@ -334,10 +334,12 @@ with b1:
 with b2:
     if st.button("📥 시트에서 복원", use_container_width=True):
         with st.spinner("구글시트에서 복원 중..."):
-            n = restore_kosis_from_sheet()
+            n, err = restore_kosis_from_sheet()
         if n > 0:
             st.success(f"복원 완료 — {n}건 (중복은 자동 제외)")
             st.cache_data.clear()
+        elif err:
+            st.error(f"복원 실패: {err}")
         else:
             st.warning("복원된 데이터가 없습니다. 시트가 비어있거나 이미 모두 DB에 있는 데이터입니다.")
 

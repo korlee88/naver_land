@@ -42,10 +42,15 @@ if "kosis_restored" not in st.session_state:
     if is_kosis_empty():
         with st.spinner("📥 KOSIS 통계 복원 중..."):
             try:
-                n = restore_kosis_from_sheet()
+                n, err = restore_kosis_from_sheet()
                 if n > 0:
                     st.success(f"✅ KOSIS 통계 복원 완료 — {n}건")
                     st.cache_data.clear()
+                elif err:
+                    # 첫 수집 전(시트 자체가 없음)은 정상 상황이라 조용히 넘어가고,
+                    # 그 외 오류(권한/네트워크 등)만 알려준다
+                    if "not found" not in err.lower():
+                        st.warning(f"⚠️ KOSIS 통계 복원 실패: {err}")
             except Exception:
                 pass  # 복원 실패 시 조용히 무시 (첫 수집 전일 수 있음)
 
