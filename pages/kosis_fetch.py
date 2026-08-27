@@ -16,7 +16,7 @@ from datetime import date, datetime
 import requests
 import streamlit as st
 
-from db import push_kosis_to_sheet, restore_kosis_from_sheet, GAS_URL, GAS_TOKEN
+from db import push_kosis_to_sheet, restore_kosis_from_sheet, GAS_URL, GAS_TOKEN, KOSIS_SHEET_ID
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -347,7 +347,8 @@ with b3:
     if st.button("🔍 시트 저장 상태 확인", use_container_width=True):
         with st.spinner("구글시트 조회 중..."):
             try:
-                r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": "KOSIS통계"}, timeout=60)
+                r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": "KOSIS통계",
+                                                   "spreadsheet_id": KOSIS_SHEET_ID}, timeout=60)
                 if r.status_code != 200:
                     st.error(f"HTTP {r.status_code} — {r.text[:200]}")
                 else:
