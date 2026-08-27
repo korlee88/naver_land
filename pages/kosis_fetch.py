@@ -49,6 +49,25 @@ _KEY_SS = "kosis_api_key"
 REGION_HINT_CHARS = ("시", "군", "구", "도")
 
 
+def _last_collected() -> str | None:
+    """kosis_stats의 최근 수집일(fetched_at 최댓값). 인구/주택/사업자 통계 전체 기준."""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    ts = conn.execute("SELECT MAX(fetched_at) FROM kosis_stats").fetchone()[0]
+    conn.close()
+    return ts
+
+
+def _fmt_last_collected(ts: str | None) -> str:
+    if not ts:
+        return "수집 이력 없음"
+    try:
+        collected = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts
+    days = (datetime.now() - collected).days
+    return f"{collected:%Y-%m-%d} ({days}일 전)"
+
+
 def _init_table():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("""
@@ -184,6 +203,7 @@ st.caption(
     "지역·연도를 한 번에 수집합니다. 통계표는 kosis.kr에서 검색 → 상세화면의 **Open API** "
     "버튼으로 생성한 파라미터를 그대로 사용합니다."
 )
+st.info(f"🕐 마지막 수집 — **{_fmt_last_collected(_last_collected())}**")
 
 _pre_key, _key_src = _saved_api_key()
 api_key = st.text_input(
