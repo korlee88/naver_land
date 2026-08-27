@@ -8,7 +8,7 @@ import os
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
-from datetime import date
+from datetime import date, datetime
 
 import requests
 import streamlit as st
@@ -111,6 +111,27 @@ def _init_table():
     """)
     conn.commit()
     conn.close()
+
+
+def _last_collected() -> dict:
+    """rtms_transactions/rtms_jeonse 각각의 최근 수집일(fetched_at 최댓값)."""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    trade  = conn.execute("SELECT MAX(fetched_at) FROM rtms_transactions").fetchone()[0]
+    jeonse = conn.execute("SELECT MAX(fetched_at) FROM rtms_jeonse").fetchone()[0]
+    conn.close()
+    return {"trade": trade, "jeonse": jeonse}
+
+
+def _fmt_last_collected(ts) -> tuple:
+    """반환: (표시 문구, 경과일수 또는 None — 수집 이력이 없으면 None)"""
+    if not ts:
+        return "수집 이력 없음", None
+    try:
+        collected = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts, None
+    days = (datetime.now() - collected).days
+    return f"{collected:%Y-%m-%d} ({days}일 전)", days
 
 
 def _ym_list(months: int) -> list[str]:
@@ -295,6 +316,19 @@ _init_table()
 
 st.title("국토부 실거래가 자동 수집")
 st.caption("실제 거래 완료된 가격 (국토교통부 공식). 네이버 호가보다 정확하며, 클라우드에서 바로 수집됩니다.")
+
+# 월 1회 수동 수집 주기이므로, 마지막으로 언제 돌렸는지가 "지금 해야 하나?"를 바로 알려준다
+_last = _last_collected()
+_trade_txt, _trade_days = _fmt_last_collected(_last["trade"])
+_jeonse_txt, _jeonse_days = _fmt_last_collected(_last["jeonse"])
+_status_line = f"🕐 마지막 수집 — 매매: **{_trade_txt}**  ·  전월세: **{_jeonse_txt}**"
+_worst_days = max([d for d in (_trade_days, _jeonse_days) if d is not None], default=None)
+if _worst_days is None:
+    st.warning(f"{_status_line}\n\n아직 한 번도 수집한 적이 없습니다 — 아래에서 첫 수집을 시작하세요.")
+elif _worst_days > 35:
+    st.warning(f"{_status_line}\n\n⚠️ 마지막 수집 후 한 달이 넘었습니다 — 지금 다시 수집해주세요.")
+else:
+    st.info(_status_line)
 
 # API 키 입력
 # 우선순위: 사용자가 이번 세션에 입력한 값 > Streamlit Secrets > 환경변수
