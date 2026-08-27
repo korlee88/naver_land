@@ -689,7 +689,13 @@ def is_kosis_empty() -> bool:
 
 
 def push_kosis_to_sheet() -> tuple[int, str]:
-    """kosis_stats → 구글시트 백업. 반환: (건수, 오류메시지)"""
+    """kosis_stats → 구글시트 백업. 반환: (건수, 오류메시지)
+
+    GAS(Code.gs)는 성공 시 평문 "OK"를, 실패 시에도 HTTP 200과 함께 "Unauthorized"/
+    "No rows"/"ERR: ..." 같은 본문을 돌려준다(Apps Script는 doPost에 커스텀 상태코드를
+    못 준다) — status_code만 보고 200이면 성공으로 치면 토큰이 어긋나거나 GAS 쪽에서
+    예외가 나도 "백업 완료"로 오인하게 된다. 본문까지 확인해야 실제 저장 여부를 안다.
+    """
     with get_conn() as conn:
         rows = conn.execute("""
             SELECT category, tbl_id, region_name, sub_label, item_name, unit_name, prd_de, value, fetched_at
@@ -708,17 +714,34 @@ def push_kosis_to_sheet() -> tuple[int, str]:
         return 0, str(e)
     if resp.status_code != 200:
         return 0, f"HTTP {resp.status_code}: {resp.text[:200]}"
-    return len(rows_2d), ""
+    try:
+        data = resp.json()
+    except ValueError:
+        text = resp.text.strip()
+        if text.upper() == "OK":
+            return len(rows_2d), ""
+        return 0, f"응답: {resp.text[:200]}"
+    if isinstance(data, dict) and data.get("error"):
+        return 0, data["error"]
+    return 0, f"예상치 못한 응답: {str(data)[:200]}"
 
 
-def restore_kosis_from_sheet() -> int:
-    """구글시트 → kosis_stats 복원. 반환: 복원 건수"""
+def restore_kosis_from_sheet() -> tuple[int, str]:
+    """구글시트 → kosis_stats 복원. 반환: (복원 건수, 오류메시지)
+
+    GAS doGet은 시트 탭이 아예 없으면 {"error": "Sheet not found"}를 돌려주는데,
+    이걸 안 걸러내면 .get("rows", [])가 빈 리스트로 넘어가 "시트가 비어있다"와
+    "탭 자체가 없다"를 구분 못 하게 된다.
+    """
     try:
         r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": KOSIS_SHEET}, timeout=300)
         r.raise_for_status()
-        rows = r.json().get("rows", [])
-    except Exception:
-        return 0
+        data = r.json()
+    except Exception as e:
+        return 0, str(e)
+    if isinstance(data, dict) and data.get("error"):
+        return 0, data["error"]
+    rows = data.get("rows", []) if isinstance(data, dict) else []
 
     fetched_at = _now_iso()
     insert_rows = []
@@ -740,7 +763,7 @@ def restore_kosis_from_sheet() -> int:
         except (ValueError, TypeError, IndexError):
             continue
     if not insert_rows:
-        return 0
+        return 0, ""
 
     with get_conn() as conn:
         cur = conn.executemany("""
@@ -749,7 +772,7 @@ def restore_kosis_from_sheet() -> int:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, insert_rows)
         conn.commit()
-        return cur.rowcount
+        return cur.rowcount, ""
 
 
 # =========================
