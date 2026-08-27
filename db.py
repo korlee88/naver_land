@@ -677,6 +677,10 @@ def restore_rtms_from_sheet() -> tuple[int, int]:
 
 
 KOSIS_SHEET = "KOSIS통계"
+# "부동산" 시트(GAS_URL이 바인딩된 원래 스프레드시트)가 실거래가·매물 기록만으로
+# 이미 구글시트 셀 한도(통합문서당 1천만 셀)에 근접해 있어, KOSIS 통계는 별도
+# 스프레드시트에 저장한다. Code.gs가 spreadsheet_id를 받으면 그 시트를 연다.
+KOSIS_SHEET_ID = "1pC4M1PIQT_aHNAgctu1p9gO1-t1aUQnuERsTaCaWAiY"
 
 
 def is_kosis_empty() -> bool:
@@ -707,7 +711,8 @@ def push_kosis_to_sheet() -> tuple[int, str]:
     try:
         resp = requests.post(
             GAS_URL,
-            json={"token": GAS_TOKEN, "rows": rows_2d, "sheet_name": KOSIS_SHEET},
+            json={"token": GAS_TOKEN, "rows": rows_2d, "sheet_name": KOSIS_SHEET,
+                  "spreadsheet_id": KOSIS_SHEET_ID},
             timeout=300,
         )
     except Exception as e:
@@ -734,7 +739,8 @@ def restore_kosis_from_sheet() -> tuple[int, str]:
     "탭 자체가 없다"를 구분 못 하게 된다.
     """
     try:
-        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": KOSIS_SHEET}, timeout=300)
+        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": KOSIS_SHEET,
+                                           "spreadsheet_id": KOSIS_SHEET_ID}, timeout=300)
         r.raise_for_status()
         data = r.json()
     except Exception as e:
