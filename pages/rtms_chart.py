@@ -314,6 +314,18 @@ with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 
     st.dataframe(reg[["지역", "건수"]].sort_values("건수", ascending=False),
                  use_container_width=True, hide_index=True)
 
+    st.markdown("**동(읍·면)별 매매 건수** — 특정 동만 안 보일 때 확인용")
+    dong_cnt = (df_all.assign(지역=df_all["lawd_cd"].apply(_lawd_label))
+                .groupby(["지역", "dong"]).size().reset_index(name="건수")
+                .rename(columns={"dong": "동(읍·면)"}))
+    st.dataframe(dong_cnt.sort_values(["지역", "건수"], ascending=[True, False]),
+                 use_container_width=True, hide_index=True)
+    st.caption(
+        "찾는 동이 이 표에 아예 없으면 국토부 API 응답 자체에 해당 동 거래가 없었다는 뜻입니다 "
+        "(신축 단지는 등기 완료 전까지 실거래가 신고가 안 잡힐 수 있고, 수집 개월 수가 짧으면 "
+        "그 기간에 마침 거래가 없었을 수도 있습니다) — 수집 페이지에서 **수집 개월 수를 늘려** 다시 시도해보세요."
+    )
+
     st.markdown("**월별 매매 건수** (수집 기간 전체)")
     by_ym = (df_all.assign(월=df_all["ym"].dt.strftime("%Y-%m"))
              .groupby("월").size())
