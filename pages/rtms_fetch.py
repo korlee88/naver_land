@@ -13,7 +13,7 @@ from datetime import date, datetime
 import requests
 import streamlit as st
 
-from db import push_rtms_to_sheet, restore_rtms_from_sheet, GAS_URL, GAS_TOKEN
+from db import push_rtms_to_sheet, restore_rtms_from_sheet, GAS_URL, GAS_TOKEN, RTMS_SHEET_ID
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -700,7 +700,7 @@ with b3:
                 try:
                     r = requests.get(
                         GAS_URL,
-                        params={"token": GAS_TOKEN, "sheet_name": sheet},
+                        params={"token": GAS_TOKEN, "sheet_name": sheet, "spreadsheet_id": RTMS_SHEET_ID},
                         timeout=30,
                     )
                     if r.status_code != 200:
