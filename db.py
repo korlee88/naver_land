@@ -405,6 +405,12 @@ def read_history(uid: str = None) -> List[Dict[str, Any]]:
 GAS_URL   = "https://script.google.com/macros/s/AKfycbxSoKgcyvWAE6TotwZsLGwTPDmYoJptMcLJTvv_7SnsBnCNwN7SfSJRVf7P_HgOAZ1g0Q/exec"
 GAS_TOKEN = "MY_SECRET_TOKEN"
 
+# "부동산" 시트(GAS_URL이 바인딩된 원래 스프레드시트)가 실거래가·매물 기록(raw "기록" 탭)만으로
+# 이미 구글시트 셀 한도(통합문서당 1천만 셀)에 근접해 있다 — 탭을 나눠도 한도는 스프레드시트
+# 파일 전체 합산이라 소용없어, KOSIS·RTMS 백업은 별도 스프레드시트에 함께 저장한다.
+# Code.gs가 spreadsheet_id를 받으면 그 시트를 연다.
+BACKUP_SHEET_ID = "1pC4M1PIQT_aHNAgctu1p9gO1-t1aUQnuERsTaCaWAiY"
+
 def is_db_empty() -> bool:
     """price_history 테이블이 비어있으면 True"""
     try:
@@ -527,6 +533,7 @@ def push_to_sheet(sheet_name: str = "기록") -> tuple[int, str]:
 
 RTMS_TRADE_SHEET  = "RTMS매매"
 RTMS_JEONSE_SHEET = "RTMS전월세"
+RTMS_SHEET_ID     = BACKUP_SHEET_ID
 
 
 def is_rtms_empty() -> bool:
@@ -560,7 +567,8 @@ def push_rtms_to_sheet() -> tuple[int, int, str]:
             try:
                 resp = requests.post(
                     GAS_URL,
-                    json={"token": GAS_TOKEN, "rows": rows, "sheet_name": sheet_name},
+                    json={"token": GAS_TOKEN, "rows": rows, "sheet_name": sheet_name,
+                          "spreadsheet_id": RTMS_SHEET_ID},
                     timeout=300,
                 )
             except requests.exceptions.RequestException as e:
@@ -594,7 +602,8 @@ def restore_rtms_from_sheet() -> tuple[int, int]:
     fetched_at = datetime.now().isoformat(timespec="seconds")
 
     def _fetch_rows(sheet_name):
-        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": sheet_name}, timeout=300)
+        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": sheet_name,
+                                           "spreadsheet_id": RTMS_SHEET_ID}, timeout=300)
         r.raise_for_status()
         return r.json().get("rows", [])
 
@@ -676,11 +685,8 @@ def restore_rtms_from_sheet() -> tuple[int, int]:
     return trade_saved, jeonse_saved
 
 
-KOSIS_SHEET = "KOSIS통계"
-# "부동산" 시트(GAS_URL이 바인딩된 원래 스프레드시트)가 실거래가·매물 기록만으로
-# 이미 구글시트 셀 한도(통합문서당 1천만 셀)에 근접해 있어, KOSIS 통계는 별도
-# 스프레드시트에 저장한다. Code.gs가 spreadsheet_id를 받으면 그 시트를 연다.
-KOSIS_SHEET_ID = "1pC4M1PIQT_aHNAgctu1p9gO1-t1aUQnuERsTaCaWAiY"
+KOSIS_SHEET    = "KOSIS통계"
+KOSIS_SHEET_ID = BACKUP_SHEET_ID
 
 
 def is_kosis_empty() -> bool:
