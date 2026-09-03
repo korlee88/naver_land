@@ -130,7 +130,11 @@ def _fmt_last_collected(ts) -> tuple:
         collected = datetime.fromisoformat(ts)
     except ValueError:
         return ts, None
-    days = (datetime.now() - collected).days
+    # 구글시트를 한 번 왕복한 값은 시트가 ISO 문자열을 실제 Date 셀로 자동 변환해뒀다가
+    # 복원 시 타임존 있는 문자열("...Z")로 돌아온다 — naive datetime.now()와 그대로
+    # 빼면 TypeError가 나므로, collected 쪽 타임존에 맞춰 now를 만든다.
+    now = datetime.now(collected.tzinfo) if collected.tzinfo else datetime.now()
+    days = (now - collected).days
     return f"{collected:%Y-%m-%d} ({days}일 전)", days
 
 
