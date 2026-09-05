@@ -409,7 +409,8 @@ GAS_TOKEN = "MY_SECRET_TOKEN"
 # 이미 구글시트 셀 한도(통합문서당 1천만 셀)에 근접해 있다 — 탭을 나눠도 한도는 스프레드시트
 # 파일 전체 합산이라 소용없어, KOSIS·RTMS 백업은 별도 스프레드시트에 함께 저장한다.
 # Code.gs가 spreadsheet_id를 받으면 그 시트를 연다.
-BACKUP_SHEET_ID = "1pC4M1PIQT_aHNAgctu1p9gO1-t1aUQnuERsTaCaWAiY"
+BACKUP_SHEET_ID  = "1pC4M1PIQT_aHNAgctu1p9gO1-t1aUQnuERsTaCaWAiY"
+BACKUP_SHEET_URL = f"https://docs.google.com/spreadsheets/d/{BACKUP_SHEET_ID}/edit"
 
 def is_db_empty() -> bool:
     """price_history 테이블이 비어있으면 True"""
@@ -785,6 +786,43 @@ def restore_kosis_from_sheet() -> tuple[int, str]:
         """, insert_rows)
         conn.commit()
         return cur.rowcount, ""
+
+
+# 백업 스프레드시트 셀 사용량 — 통합문서당 1천만 셀 한도를 넘기면 백업이 통째로 실패한다
+# (2026-09 실제 발생: "부동산" 시트가 한도에 닿아 RTMS·KOSIS 백업이 모두 실패).
+# 백업 버튼을 누른 뒤에야 알게 되지 않도록 각 수집 페이지가 평소에 이 값을 표시한다.
+SHEET_CELL_LIMIT = 10_000_000
+_BACKUP_TABLES = [
+    # (표시명, 테이블, 백업 컬럼 수 — push_*_to_sheet()의 SELECT 컬럼 수와 반드시 일치)
+    ("RTMS 매매",   "rtms_transactions", 13),
+    ("RTMS 전월세", "rtms_jeonse",        9),
+    ("KOSIS 통계",  "kosis_stats",        9),
+]
+
+
+def backup_sheet_usage() -> dict:
+    """백업 스프레드시트의 예상 셀 사용량.
+
+    반환: {"cells": 예상 셀 수, "limit": 한도, "ratio": 0~1, "rows": [(표시명, 행수, 셀수), ...]}
+
+    시트를 조회하지 않고 DB 행수 × 백업 컬럼 수로 계산한다 — 백업은 매번 DB 전체
+    스냅샷으로 덮어쓰므로, 이 값이 곧 다음 백업 직후 시트가 차지할 셀 수다.
+    """
+    detail, total = [], 0
+    with get_conn() as conn:
+        for label, table, ncol in _BACKUP_TABLES:
+            try:
+                n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            except Exception:
+                n = 0   # 아직 생성 전인 테이블 (첫 수집 이전)
+            total += n * ncol
+            detail.append((label, n, n * ncol))
+    return {
+        "cells": total,
+        "limit": SHEET_CELL_LIMIT,
+        "ratio": total / SHEET_CELL_LIMIT,
+        "rows": detail,
+    }
 
 
 # =========================
