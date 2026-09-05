@@ -16,7 +16,10 @@ from datetime import date, datetime
 import requests
 import streamlit as st
 
-from db import push_kosis_to_sheet, restore_kosis_from_sheet, GAS_URL, GAS_TOKEN, KOSIS_SHEET_ID
+from db import (
+    push_kosis_to_sheet, restore_kosis_from_sheet, backup_sheet_usage,
+    GAS_URL, GAS_TOKEN, KOSIS_SHEET_ID, BACKUP_SHEET_URL,
+)
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -325,7 +328,16 @@ except Exception:
     n_kosis = 0
 st.metric("현재 DB — KOSIS 통계", f"{n_kosis:,}건")
 
-b1, b2, b3 = st.columns(3)
+# RTMS 백업과 같은 스프레드시트를 쓰므로 합산 사용량을 여기서도 보여준다 —
+# 한도(통합문서당 1천만 셀)를 넘기면 백업이 통째로 실패한다.
+_usage = backup_sheet_usage()
+st.progress(min(_usage["ratio"], 1.0))
+st.caption(
+    f"백업 시트 사용량 **{_usage['cells']:,} / {_usage['limit']:,}셀 ({_usage['ratio'] * 100:.1f}%)**"
+    + "  —  " + "  ·  ".join(f"{label} {n:,}행" for label, n, _ in _usage["rows"] if n)
+)
+
+b1, b2, b3, b4 = st.columns(4)
 with b1:
     if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=(n_kosis == 0)):
         with st.spinner("구글시트로 백업 중..."):
@@ -364,3 +376,6 @@ with b3:
                         st.info(f"**KOSIS통계** 탭: {len(rows):,}행 저장됨" if rows else "**KOSIS통계** 탭: 0행 (아직 백업 전이거나 비어있음)")
             except Exception as e:
                 st.error(f"조회 실패: {e}")
+
+with b4:
+    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, use_container_width=True)

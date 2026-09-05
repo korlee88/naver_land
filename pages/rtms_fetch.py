@@ -13,7 +13,10 @@ from datetime import date, datetime
 import requests
 import streamlit as st
 
-from db import push_rtms_to_sheet, restore_rtms_from_sheet, GAS_URL, GAS_TOKEN, RTMS_SHEET_ID
+from db import (
+    push_rtms_to_sheet, restore_rtms_from_sheet, backup_sheet_usage,
+    GAS_URL, GAS_TOKEN, RTMS_SHEET_ID, BACKUP_SHEET_URL,
+)
 from utils_style import inject_korean_font
 
 inject_korean_font()
@@ -378,7 +381,24 @@ with col1:
         default=["경기 평택시"],
     )
 with col2:
-    months = st.number_input("수집 개월 수", min_value=1, max_value=60, value=24, step=6)
+    # 월 1회 루틴에 매번 24개월을 다시 받으면 지역당 요청이 8배로 늘어난다 — 국토부
+    # 신고기한(30일)에 정정·해제 신고 여유를 더해도 최근 3개월이면 바뀐 건은 모두 잡히므로,
+    # 정기 갱신은 3개월로 충분하다. 전체 백필은 첫 수집·신규 지역 추가 때만 필요.
+    MONTH_PRESETS = {"3개월": 3, "12개월": 12, "24개월": 24, "직접 지정": None}
+    _preset_keys = list(MONTH_PRESETS)
+    sel_preset = st.radio(
+        "수집 범위", _preset_keys, horizontal=True, key="rtms_month_preset",
+        # 수집 이력이 없으면(첫 수집) 3개월만 받아선 안 되므로 전체 백필을 기본으로 제시
+        index=0 if _last["trade"] else 2,
+    )
+    months = MONTH_PRESETS[sel_preset]
+    if months is None:
+        months = st.number_input("수집 개월 수", min_value=1, max_value=60, value=24, step=6)
+    st.caption(
+        "정기 갱신은 **3개월**이면 충분합니다 (신고기한 30일 + 정정신고 여유). "
+        "첫 수집이거나 지역을 새로 추가했을 때만 **24개월**로 백필하세요 — "
+        "이미 저장된 건은 중복 제외되므로 짧게 돌려도 과거 데이터는 그대로 유지됩니다."
+    )
 
 if sel_regions:
     selected_lawds = [LAWD_OPTIONS[r] for r in sel_regions]
@@ -672,7 +692,23 @@ m1, m2 = st.columns(2)
 m1.metric("현재 DB — 매매", f"{n_trade:,}건")
 m2.metric("현재 DB — 전월세", f"{n_jeonse:,}건")
 
-b1, b2, b3 = st.columns(3)
+# 셀 한도(통합문서당 1천만)를 넘기면 백업이 통째로 실패한다 — 백업 버튼을 누른 뒤에야
+# 알게 되지 않도록 평소에 사용률을 보여준다. RTMS·KOSIS가 같은 스프레드시트를 쓰므로 합산.
+_usage = backup_sheet_usage()
+st.progress(min(_usage["ratio"], 1.0))
+_usage_detail = "  ·  ".join(f"{label} {n:,}행" for label, n, _ in _usage["rows"] if n)
+st.caption(
+    f"백업 시트 사용량 **{_usage['cells']:,} / {_usage['limit']:,}셀 ({_usage['ratio'] * 100:.1f}%)**"
+    + (f"  —  {_usage_detail}" if _usage_detail else "")
+)
+if _usage["ratio"] >= 0.8:
+    st.warning(
+        "⚠️ 백업 시트가 셀 한도의 80%를 넘었습니다 — 한도를 넘기면 백업이 통째로 실패합니다. "
+        "새 스프레드시트를 만들어 `db.py`의 `BACKUP_SHEET_ID`를 바꿔주세요 "
+        "(탭을 나누는 건 소용없습니다 — 한도는 스프레드시트 파일 전체 합산입니다)."
+    )
+
+b1, b2, b3, b4 = st.columns(4)
 
 with b1:
     if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=(n_trade == 0 and n_jeonse == 0)):
@@ -721,3 +757,6 @@ with b3:
                         st.warning(f"**{sheet}** 탭: 0행 (탭이 비어있거나 존재하지 않을 수 있음) — 응답: {str(data)[:200]}")
                 except Exception as e:
                     st.error(f"**{sheet}** 탭 조회 실패: {e}")
+
+with b4:
+    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, use_container_width=True)
