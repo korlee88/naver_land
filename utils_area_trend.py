@@ -70,9 +70,11 @@ def load_data() -> pd.DataFrame:
     """매매 실거래 (rtms_transactions)"""
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        # build_year는 수집은 해왔지만 오랫동안 어느 화면도 읽지 않던 컬럼이다 —
+        # 연식별 가격 비교(utils_market.add_derived)를 하려면 여기서 같이 실어야 한다.
         df = pd.read_sql("""
             SELECT lawd_cd, apt_name, dong, deal_year, deal_month, deal_day,
-                   area, floor, price_man, cancel_yn
+                   area, floor, price_man, build_year, cancel_yn
             FROM rtms_transactions
             ORDER BY deal_year, deal_month, deal_day
         """, conn)
@@ -99,8 +101,12 @@ def load_data() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_jeonse() -> pd.DataFrame:
-    """전월세 (rtms_jeonse) 중 순수 전세(월세 없는 보증금만) 거래만. dong 컬럼이 없어 시/구 단위만 가능."""
+def load_rent_all() -> pd.DataFrame:
+    """전월세 (rtms_jeonse) 전체 — 전세·월세를 가리지 않고 그대로.
+
+    월세 건수까지 세야 하는 화면(실거래가 가격 추이의 데이터 진단)이 있어 원본을 따로 둔다.
+    dong 컬럼이 없어 시/구 단위 집계만 가능하다.
+    """
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         df = pd.read_sql("""
@@ -113,14 +119,34 @@ def load_jeonse() -> pd.DataFrame:
         return pd.DataFrame()
     if df.empty:
         return df
-    df = df[df["monthly_rent"].fillna(0) == 0].copy()
-    if df.empty:
-        return df
     df["deposit_eok"] = df["deposit_man"] / 10000
     df["ym"] = pd.to_datetime(
         df["deal_year"].astype(str) + df["deal_month"].astype(str).str.zfill(2),
         format="%Y%m"
     )
+    return df
+
+
+def load_jeonse() -> pd.DataFrame:
+    """순수 전세(보증금만, 월세 0)만. 월세를 섞으면 보증금 성격이 달라 전세 시세가 왜곡된다."""
+    df = load_rent_all()
+    if df.empty:
+        return df
+    return df[df["monthly_rent"].fillna(0) == 0].copy()
+
+
+@st.cache_data(ttl=300)
+def load_ecos() -> pd.DataFrame:
+    """한국은행 ECOS 금리 시계열 (pages/ecos_fetch.py로 수집). 전국 단일 시계열이라 지역 구분이 없다."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        df = pd.read_sql("""
+            SELECT stat_code, stat_name, item_name, unit_name, period, value
+            FROM ecos_stats ORDER BY period
+        """, conn)
+        conn.close()
+    except Exception:
+        return pd.DataFrame()
     return df
 
 

@@ -192,6 +192,25 @@ def init_db() -> None:
         ON kosis_stats(category, region_name, prd_de)
         """)
 
+        # 한국은행 ECOS 금리·경제통계. 전국 단일 시계열이라 KOSIS와 달리 지역 컬럼이 없다.
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS ecos_stats (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            stat_code   TEXT    NOT NULL,
+            stat_name   TEXT,
+            item_name   TEXT,
+            unit_name   TEXT,
+            period      TEXT    NOT NULL,
+            value       REAL,
+            fetched_at  TEXT    NOT NULL,
+            UNIQUE(stat_code, item_name, period)
+        )
+        """)
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ecos_code_period
+        ON ecos_stats(stat_code, period)
+        """)
+
         # ✅ 혹시 예전 DB에 batch_id 컬럼이 없던 경우 대비 (마이그레이션)
         cur.execute("PRAGMA table_info(price_history)")
         cols = [r["name"] for r in cur.fetchall()]
@@ -788,6 +807,100 @@ def restore_kosis_from_sheet() -> tuple[int, str]:
         return cur.rowcount, ""
 
 
+ECOS_SHEET = "ECOS금리"
+
+
+def is_ecos_empty() -> bool:
+    """ecos_stats 테이블이 비어있으면 True"""
+    try:
+        with get_conn() as conn:
+            return conn.execute("SELECT COUNT(*) FROM ecos_stats").fetchone()[0] == 0
+    except Exception:
+        return True
+
+
+def push_ecos_to_sheet() -> tuple[int, str]:
+    """ecos_stats → 구글시트 백업. 반환: (건수, 오류메시지)
+
+    GAS는 실패해도 HTTP 200에 평문 본문을 돌려주므로 본문까지 확인해야 한다
+    (push_kosis_to_sheet와 같은 이유).
+    """
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT stat_code, stat_name, item_name, unit_name, period, value, fetched_at
+            FROM ecos_stats ORDER BY stat_code, item_name, period
+        """).fetchall()
+    rows_2d = [list(r) for r in rows]
+    if not rows_2d:
+        return 0, ""
+    try:
+        resp = requests.post(
+            GAS_URL,
+            json={"token": GAS_TOKEN, "rows": rows_2d, "sheet_name": ECOS_SHEET,
+                  "spreadsheet_id": BACKUP_SHEET_ID},
+            timeout=300,
+        )
+    except Exception as e:
+        return 0, str(e)
+    if resp.status_code != 200:
+        return 0, f"HTTP {resp.status_code}: {resp.text[:200]}"
+    try:
+        data = resp.json()
+    except ValueError:
+        text = resp.text.strip()
+        if text.upper() == "OK":
+            return len(rows_2d), ""
+        return 0, f"응답: {resp.text[:200]}"
+    if isinstance(data, dict) and data.get("error"):
+        return 0, data["error"]
+    return 0, f"예상치 못한 응답: {str(data)[:200]}"
+
+
+def restore_ecos_from_sheet() -> tuple[int, str]:
+    """구글시트 → ecos_stats 복원. 반환: (복원 건수, 오류메시지)"""
+    try:
+        r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": ECOS_SHEET,
+                                          "spreadsheet_id": BACKUP_SHEET_ID}, timeout=300)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        return 0, str(e)
+    if isinstance(data, dict) and data.get("error"):
+        return 0, data["error"]
+    rows = data.get("rows", []) if isinstance(data, dict) else []
+
+    fetched_at = _now_iso()
+    insert_rows = []
+    for row in rows:
+        if not row or len(row) < 6:
+            continue
+        if str(row[0]).strip().lower() in ("stat_code", "통계표코드"):
+            continue
+        try:
+            value = float(row[5]) if row[5] not in (None, "") else None
+        except (TypeError, ValueError):
+            continue
+        insert_rows.append((
+            str(row[0]),
+            str(row[1]) if row[1] not in (None, "") else None,
+            str(row[2]) if row[2] not in (None, "") else None,
+            str(row[3]) if row[3] not in (None, "") else None,
+            str(row[4]), value,
+            str(row[6]) if len(row) > 6 and row[6] else fetched_at,
+        ))
+    if not insert_rows:
+        return 0, ""
+
+    with get_conn() as conn:
+        cur = conn.executemany("""
+            INSERT OR IGNORE INTO ecos_stats
+              (stat_code, stat_name, item_name, unit_name, period, value, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, insert_rows)
+        conn.commit()
+        return cur.rowcount, ""
+
+
 # 백업 스프레드시트 셀 사용량 — 통합문서당 1천만 셀 한도를 넘기면 백업이 통째로 실패한다
 # (2026-09 실제 발생: "부동산" 시트가 한도에 닿아 RTMS·KOSIS 백업이 모두 실패).
 # 백업 버튼을 누른 뒤에야 알게 되지 않도록 각 수집 페이지가 평소에 이 값을 표시한다.
@@ -797,6 +910,7 @@ _BACKUP_TABLES = [
     ("RTMS 매매",   "rtms_transactions", 13),
     ("RTMS 전월세", "rtms_jeonse",        9),
     ("KOSIS 통계",  "kosis_stats",        9),
+    ("ECOS 금리",   "ecos_stats",         7),
 ]
 
 
