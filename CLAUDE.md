@@ -110,13 +110,17 @@ python setup_fonts.py && streamlit run app.py --server.port $PORT --server.addre
 
 **`app.py`** — 폰트 초기화(`setup_fonts.main()`), DB 초기화(`init_db()`), Google Sheets 자동 복원, 네비게이션 설정.
 
-현재 활성화된 메뉴 (4개):
+현재 활성화된 메뉴 (7개) — 국토부 실거래가 기반 화면이 중심이고, 네이버 매물 기반
+화면(graph_v2/graph_mobile/rawdata)은 메뉴에서 내려가 있다:
 ```python
 pg = st.navigation([
-    st.Page("pages/graph_v2.py",     title="가격 추이 차트",  icon="📊", default=True),
-    st.Page("pages/graph_mobile.py", title="추이 (모바일)",   icon="📱"),
-    st.Page("rawdata.py",            title="매물 입력",       icon="📝"),
-    st.Page("pages/raw_manage.py",   title="RAW 관리",        icon="🧹"),
+    st.Page("pages/rtms_chart.py",       title="가격 추이",       icon="📊", default=True),
+    st.Page("pages/rtms_area_trend.py",  title="지역별 가격동향", icon="🗺️"),
+    st.Page("pages/rtms_area_trend_mobile.py", title="지역별 가격동향(모바일)", icon="📱"),
+    st.Page("pages/simulator.py",        title="보유 시뮬레이터", icon="🧮"),
+    st.Page("pages/rtms_fetch.py",       title="실거래가 수집",   icon="🏛️"),
+    st.Page("pages/kosis_trend.py",      title="인구·주택·경제 통계", icon="📈"),
+    st.Page("pages/kosis_fetch.py",      title="KOSIS 통계 수집",     icon="🏢"),
 ], position="hidden")
 ```
 
@@ -124,9 +128,17 @@ pg = st.navigation([
 
 | 파일 | 상태 | 기능 |
 |---|---|---|
-| `graph_v2.py` | ✅ 활성 | 단지별 가격 추이 차트 (PC) |
-| `graph_mobile.py` | ✅ 활성 | 단지별 가격 추이 차트 (모바일 최적화) |
-| `raw_manage.py` | ✅ 활성 | 배치 삭제/복원, 데이터 관리 |
+| `rtms_chart.py` | ✅ 활성 | 국토부 실거래가 단지별 가격 추이 (매매·전세·전세가율) |
+| `rtms_area_trend.py` | ✅ 활성 | 구/동 단위 가격동향 비교 + KOSIS 상관분석 (PC) |
+| `rtms_area_trend_mobile.py` | ✅ 활성 | 구/동 단위 가격동향 비교 (모바일) |
+| `simulator.py` | ✅ 활성 | 보유 시나리오 시뮬레이터 — 대출 상환·손익분기·시장신호·평당가/연식/층 분석 |
+| `rtms_fetch.py` | ✅ 활성 | 국토부 실거래가 수집 (매매·전월세) |
+| `kosis_trend.py` | ✅ 활성 | KOSIS 인구·주택·경제 통계 추이 |
+| `kosis_fetch.py` | ✅ 활성 | KOSIS 통계 수집 |
+| `graph_v2.py` | 💤 메뉴 숨김 | 네이버 매물 기반 단지별 가격 추이 (PC) |
+| `graph_mobile.py` | 💤 메뉴 숨김 | 네이버 매물 기반 가격 추이 (모바일) |
+| `raw_manage.py` | 💤 메뉴 숨김 | 매물 배치 삭제/복원, 데이터 관리 |
+| `naver_fetch.py` | 💤 메뉴 숨김 | 네이버 부동산 수집 UI |
 | `recommend.py` | 💤 메뉴 숨김 | 가중치 기반 매물 점수 추천 |
 | `visited.py` | 💤 메뉴 숨김 | 방문 매물 수기 기록 |
 | `view_manage.py` | 💤 메뉴 숨김 | 동별 조망(뻥뷰) 등급 관리 |

@@ -1,8 +1,10 @@
 """
 pages/rtms_chart.py — 국토부 실거래가 기반 가격 추이 차트
+
+데이터 로드·집계·추세판정은 utils_area_trend.py(구/동 가격동향 페이지와 공용),
+평당가·연식·층 같은 파생지표는 utils_market.py를 쓴다 — 같은 계산을 페이지마다
+따로 들고 있으면 한쪽만 고쳐져 화면끼리 숫자가 어긋난다.
 """
-import os
-import sqlite3
 from datetime import date
 
 import pandas as pd
@@ -11,147 +13,24 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from utils_style import inject_korean_font
+from utils_area_trend import (
+    PALETTE, JEONSE_COLOR, LAWD_HIER, _hex_to_rgba, lawd_label,
+    load_data, load_rent_all, monthly_stats, trend_signal, pick_one,
+)
+import utils_market as mk
 
 inject_korean_font()
 
-DB_PATH        = os.environ.get("DB_PATH", "/tmp/naver_land.db")
 MY_APT_KEYWORD = "센트럴자이"
 MY_APT_SUFFIX  = "2단지"
 MY_PRICE       = 3.20  # 매수가 (억)
-
-PALETTE = [
-    "#4C72B0","#DD8452","#55A868","#C44E52",
-    "#8172B2","#937860","#DA8BC3","#8C8C8C",
-    "#CCB974","#64B5CD",
-]
-
-# lawd_cd → (시, 구) 계층 매핑
-LAWD_HIER: dict[str, tuple[str, str | None]] = {
-    "41220": ("경기 평택시",  None),
-    "43113": ("충북 청주시", "흥덕구"),
-    "43114": ("충북 청주시", "청원구"),
-    "41550": ("경기 안성시",  None),
-    "41370": ("경기 오산시",  None),
-    "41591": ("경기 화성시", "만세구"),
-    "41593": ("경기 화성시", "효행구"),
-    "41595": ("경기 화성시", "병점구"),
-    "41597": ("경기 화성시", "동탄구"),
-    "41111": ("경기 수원시", "장안구"),
-    "41113": ("경기 수원시", "권선구"),
-    "41115": ("경기 수원시", "팔달구"),
-    "41117": ("경기 수원시", "영통구"),
-}
-
-
-def _hex_to_rgba(hex_color: str, alpha: float = 0.12) -> str:
-    h = hex_color.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    return f"rgba({r},{g},{b},{alpha})"
-
 
 def _is_my_apt(name: str) -> bool:
     return MY_APT_KEYWORD in name and MY_APT_SUFFIX in name
 
 
-# ── 데이터 로드 ────────────────────────────────────────────────
-@st.cache_data(ttl=300)
-def load_data() -> pd.DataFrame:
-    try:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        df = pd.read_sql("""
-            SELECT lawd_cd, apt_name, dong, deal_year, deal_month, deal_day,
-                   area, floor, price_man, cancel_yn
-            FROM rtms_transactions
-            ORDER BY deal_year, deal_month, deal_day
-        """, conn)
-        conn.close()
-    except Exception:
-        return pd.DataFrame()
-    if df.empty:
-        return df
-    df = df[df["cancel_yn"].isna() | (df["cancel_yn"] != "O")].copy()
-    df["eok"] = df["price_man"] / 10000
-    df["ym"]  = pd.to_datetime(
-        df["deal_year"].astype(str) + df["deal_month"].astype(str).str.zfill(2),
-        format="%Y%m"
-    )
-    def _area_label(a):
-        try: v = float(a)
-        except: return "기타"
-        if v < 45:  return f"{round(v)}㎡"
-        if v < 63:  return "59㎡"
-        if v < 75:  return "72㎡"
-        if v < 100: return "84㎡"
-        if v < 130: return "114㎡"
-        return f"{round(v)}㎡"
-    df["area_label"] = df["area"].apply(_area_label)
-    return df
-
-
-@st.cache_data(ttl=300)
-def load_jeonse() -> pd.DataFrame:
-    """전월세 데이터 전체 (전세+월세, monthly_rent 포함하여 로드)"""
-    try:
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        df = pd.read_sql("""
-            SELECT lawd_cd, apt_name, deal_year, deal_month, deposit_man, monthly_rent
-            FROM rtms_jeonse
-            ORDER BY deal_year, deal_month
-        """, conn)
-        conn.close()
-        if df.empty:
-            return df
-        df["deposit_eok"] = df["deposit_man"] / 10000
-        df["ym"] = pd.to_datetime(
-            df["deal_year"].astype(str) + df["deal_month"].astype(str).str.zfill(2),
-            format="%Y%m"
-        )
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
-# ── 월별 집계 ──────────────────────────────────────────────────
-def monthly_stats(df: pd.DataFrame, col: str = "eok") -> pd.DataFrame:
-    g = df.groupby("ym")[col]
-    stats = pd.DataFrame({
-        "ym":    g.min().index,
-        "min":   g.min().values,
-        "avg":   g.mean().values,
-        "max":   g.max().values,
-        "count": g.count().values,
-    }).reset_index(drop=True)
-    # 3개월 이동평균
-    stats["ma3"] = stats["avg"].rolling(3, min_periods=2).mean()
-    return stats
-
-
-# ── 트렌드 신호 ────────────────────────────────────────────────
-def trend_signal(stats: pd.DataFrame) -> tuple[str, str, str]:
-    """
-    최근 3개월 vs 이전 3개월 평균 비교
-    반환: (이모지, 설명, 색상)
-    """
-    if len(stats) < 4:
-        return "─", "데이터 부족", "#888"
-    n = len(stats)
-    recent = stats["avg"].iloc[max(n-3, 0):].mean()
-    prev   = stats["avg"].iloc[max(n-6, 0):max(n-3, 0)].mean()
-    if prev == 0:
-        return "─", "보합", "#f39c12"
-    pct = (recent - prev) / prev * 100
-    if pct >= 2:
-        return "🔺", f"상승세 (+{pct:.1f}%)", "#27ae60"
-    elif pct <= -2:
-        return "🔻", f"하락세 ({pct:.1f}%)", "#e74c3c"
-    else:
-        return "➡️", f"보합 ({pct:+.1f}%)", "#f39c12"
-
 
 # ── 차트 (가격 + 거래량 + 전세 서브플롯) ───────────────────────
-JEONSE_COLOR = "#55A868"
-
-
 def make_chart(stats: pd.DataFrame, cname: str, color: str,
                jeonse_stats: pd.DataFrame | None = None) -> go.Figure:
     has_jeonse = jeonse_stats is not None and not jeonse_stats.empty
@@ -190,9 +69,9 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str,
         hovertemplate="%{x|%Y-%m} 평균 %{y:.2f}억<extra></extra>",
     ), row=1, col=1)
     # 3개월 이동평균
-    if stats["ma3"].notna().sum() >= 2:
+    if stats["ma"].notna().sum() >= 2:
         fig.add_trace(go.Scatter(
-            x=stats["ym"], y=stats["ma3"], name="3개월 MA",
+            x=stats["ym"], y=stats["ma"], name="3개월 MA",
             line=dict(color="#888", width=1.5, dash="dash"),
             hovertemplate="%{x|%Y-%m} MA3 %{y:.2f}억<extra></extra>",
         ), row=1, col=1)
@@ -273,8 +152,8 @@ def make_chart(stats: pd.DataFrame, cname: str, color: str,
 # ══════════════════════════════════════════════════════════════
 # 페이지
 # ══════════════════════════════════════════════════════════════
-df_all = load_data()
-df_rent_all = load_jeonse()
+df_all = mk.add_derived(load_data())   # 평당가·연식·층·평형 라벨 부착
+df_rent_all = load_rent_all()
 # 전세가·전세가율 비교는 "보증금만 있는" 순수 전세 거래만 사용한다.
 # monthly_rent > 0 인 행은 월세(반전세 포함)로, 보증금 성격이 달라 그대로 섞으면
 # 전세 시세가 실제보다 낮게/들쭉날쭉하게 나옴 (사용자 보고 이슈).
@@ -304,18 +183,14 @@ with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 
             "— 전세 시세·전세가율 차트는 **전세 거래만** 사용합니다 (월세는 보증금 성격이 달라 제외)."
         )
 
-    def _lawd_label(code: str) -> str:
-        si, gu = LAWD_HIER.get(str(code), (str(code), None))
-        return f"{si} {gu}" if gu else si
-
     st.markdown("**지역별 매매 건수**")
     reg = (df_all.groupby("lawd_cd").size().reset_index(name="건수"))
-    reg["지역"] = reg["lawd_cd"].apply(_lawd_label)
+    reg["지역"] = reg["lawd_cd"].apply(lawd_label)
     st.dataframe(reg[["지역", "건수"]].sort_values("건수", ascending=False),
                  use_container_width=True, hide_index=True)
 
     st.markdown("**동(읍·면)별 매매 건수** — 특정 동만 안 보일 때 확인용")
-    dong_cnt = (df_all.assign(지역=df_all["lawd_cd"].apply(_lawd_label))
+    dong_cnt = (df_all.assign(지역=df_all["lawd_cd"].apply(lawd_label))
                 .groupby(["지역", "dong"]).size().reset_index(name="건수")
                 .rename(columns={"dong": "동(읍·면)"}))
     st.dataframe(dong_cnt.sort_values(["지역", "건수"], ascending=[True, False]),
@@ -342,16 +217,6 @@ with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 
         icon="ℹ️",
     )
 
-def _pick_one(label: str, options: list[str], key: str, default: str | None = None) -> str:
-    """가로 선택 버튼 (segmented_control 지원 시 버튼형, 아니면 radio).
-    default는 위젯에 session_state가 아직 없는 최초 진입 시에만 적용됨."""
-    default = default if default in options else options[0]
-    if hasattr(st, "segmented_control"):
-        sel = st.segmented_control(label, options, default=default, key=key)
-        return sel or default
-    return st.radio(label, options, horizontal=True, key=key, index=options.index(default))
-
-
 # ── 사이드바 ───────────────────────────────────────────────────
 with st.sidebar:
     # 지역 필터: 시 → 구 → 동(읍·면) 계층 선택
@@ -365,7 +230,7 @@ with st.sidebar:
         si_map.setdefault(si, []).append(c)
 
     if len(si_map) > 1:
-        sel_si = _pick_one("시", ["전체"] + list(si_map.keys()), "rtms_si", default="경기 평택시")
+        sel_si = pick_one("시", ["전체"] + list(si_map.keys()), "rtms_si", default="경기 평택시")
     else:
         sel_si = list(si_map.keys())[0]
         st.caption(f"시: {sel_si}")
@@ -375,7 +240,7 @@ with st.sidebar:
     gu_map = {LAWD_HIER[c][1]: c for c in sel_lawd_codes
               if LAWD_HIER.get(c, (None, None))[1]}
     if sel_si != "전체" and len(gu_map) > 1:
-        sel_gu = _pick_one("구", ["전체"] + list(gu_map.keys()), "rtms_gu")
+        sel_gu = pick_one("구", ["전체"] + list(gu_map.keys()), "rtms_gu")
         if sel_gu != "전체":
             sel_lawd_codes = [gu_map[sel_gu]]
 
@@ -433,7 +298,7 @@ with st.sidebar:
         "30평대":    (30 * PYEONG, 35 * PYEONG),
         "35평 이상": (35 * PYEONG, area_max + 1),
     }
-    sel_area = _pick_one("평형", list(AREA_BUCKETS.keys()), "rtms_area_bucket", default="15평대")
+    sel_area = pick_one("평형", list(AREA_BUCKETS.keys()), "rtms_area_bucket", default="15평대")
     lo, hi = AREA_BUCKETS[sel_area]
     hi_label = "이상" if sel_area == "35평 이상" else f"{hi/PYEONG:.0f}평"
     lo_label = "" if sel_area == "전체" else f"{lo/PYEONG:.0f}평 ~ "
