@@ -136,6 +136,21 @@ def load_jeonse() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_ecos() -> pd.DataFrame:
+    """한국은행 ECOS 금리 시계열 (pages/ecos_fetch.py로 수집). 전국 단일 시계열이라 지역 구분이 없다."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        df = pd.read_sql("""
+            SELECT stat_code, stat_name, item_name, unit_name, period, value
+            FROM ecos_stats ORDER BY period
+        """, conn)
+        conn.close()
+    except Exception:
+        return pd.DataFrame()
+    return df
+
+
+@st.cache_data(ttl=300)
 def load_kosis() -> pd.DataFrame:
     """KOSIS 통계 (pages/kosis_fetch.py가 수집한 kosis_stats). 시군구 단위 연도별 값."""
     try:

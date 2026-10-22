@@ -269,6 +269,31 @@ def solve_growth_for_first_payment(principal: float, annual_rate_pct: float, mon
     return (lo + hi) / 2
 
 
+def rate_scenarios(principal: float, months: int, rates, kind: str = "equal",
+                   annual_growth_pct: float = 0.0, current_rate: float | None = None) -> pd.DataFrame:
+    """금리별 월 납입액·총이자 비교표.
+
+    고정금리를 쓰고 있어도 의미가 있다 — 시장금리가 내 금리보다 충분히 낮아졌는지가
+    갈아타기 판단의 출발점이고, 변동금리라면 그대로 미래 부담이기 때문이다.
+    """
+    rows = []
+    for r in rates:
+        sch = amortization_schedule(principal, r, months, kind, annual_growth_pct)
+        s = loan_summary(sch)
+        row = {
+            "금리(%)": round(r, 2),
+            "1회차 납입(원)": round(sch["payment"].iloc[0]),
+            "총이자(만원)": round(s["total_interest"] / 10000),
+        }
+        if current_rate is not None:
+            base = amortization_schedule(principal, current_rate, months, kind, annual_growth_pct)
+            row["현재 대비 총이자(만원)"] = round(
+                (s["total_interest"] - loan_summary(base)["total_interest"]) / 10000
+            )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def loan_summary(schedule: pd.DataFrame) -> dict:
     """스케줄 요약 — 총 이자, 총 상환액, 잔액이 늘어나는 구간(음의 상환) 길이."""
     if schedule.empty:

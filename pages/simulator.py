@@ -14,7 +14,7 @@ import streamlit as st
 from utils_style import inject_korean_font
 from utils_area_trend import (
     CHART_CONFIG, PALETTE, JEONSE_COLOR, KOSIS_CAT_ICON, KOSIS_CAT_SHORT,
-    lawd_label, load_data, load_jeonse, load_kosis,
+    lawd_label, load_data, load_jeonse, load_kosis, load_ecos,
     monthly_stats, kosis_city_keyword, match_kosis_region, kosis_summary,
 )
 import utils_market as mk
@@ -219,6 +219,40 @@ else:
     st.caption(
         "잔액(왼쪽 축)과 월 납입액(오른쪽 축)은 단위가 달라 축을 나눴습니다 — 두 선의 "
         "높낮이를 서로 비교하지 마시고, 각자의 기울기만 보세요."
+    )
+
+    # ── 금리 시나리오 — 수집한 ECOS 금리를 내 대출 조건에 직접 대본다 ──
+    st.markdown("**금리가 바뀌면**")
+    df_ecos = load_ecos()
+    market_rate = None
+    if not df_ecos.empty:
+        loan_rows = df_ecos[df_ecos["item_name"].fillna("").str.contains("주택담보|대출금리", regex=True)]
+        if not loan_rows.empty:
+            latest = loan_rows.sort_values("period").iloc[-1]
+            market_rate = float(latest["value"])
+            diff = rate - market_rate
+            st.caption(
+                f"수집된 시장금리: **{latest['item_name']} {market_rate:.2f}%** ({latest['period']}) · "
+                f"내 금리 {rate:.2f}% → **{diff:+.2f}%p** "
+                + ("— 시장금리가 더 낮습니다. 갈아타기 시 중도상환수수료·한도를 따져볼 만합니다."
+                   if diff > 0.3 else "— 지금 금리가 시장보다 불리하지 않습니다.")
+            )
+    if market_rate is None:
+        st.caption(
+            "💡 **🏦 금리 수집(ECOS)** 메뉴에서 금리를 수집하면 여기에 시장금리와 내 금리를 "
+            "나란히 비교해 드립니다."
+        )
+
+    cand = sorted({round(rate + d, 2) for d in (-1.5, -1.0, -0.5, 0, 0.5, 1.0, 1.5)}
+                  | ({round(market_rate, 2)} if market_rate else set()))
+    rs = mk.rate_scenarios(principal_won, months, [r for r in cand if r > 0],
+                           kind="graduated" if repay_kind == "원리금체증식" else "equal",
+                           annual_growth_pct=growth or 0.0, current_rate=rate)
+    st.dataframe(rs, use_container_width=True, hide_index=True)
+    st.caption(
+        f"현재 금리 **{rate:.2f}%** 기준으로 비교한 값입니다. 고정금리라도 "
+        "시장금리가 충분히 내려가면 갈아타기를 검토할 근거가 됩니다 "
+        "(실제 판단에는 중도상환수수료와 대출 한도를 함께 봐야 합니다)."
     )
 
 # ══════════════════════════════════════════════════════════════
