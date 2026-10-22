@@ -87,6 +87,7 @@ pg = st.navigation([
     st.Page("pages/rtms_area_trend.py",  title="지역별 가격동향", icon="🗺️"),
     st.Page("pages/rtms_area_trend_mobile.py", title="지역별 가격동향(모바일)", icon="📱"),
     st.Page("pages/simulator.py",        title="보유 시뮬레이터", icon="🧮"),
+    st.Page("pages/market_link.py",      title="시장 연동 분석", icon="🔗"),
     st.Page("pages/rtms_fetch.py",       title="실거래가 수집",   icon="🏛️"),
     st.Page("pages/kosis_trend.py",      title="인구·주택·경제 통계", icon="📈"),
     st.Page("pages/kosis_fetch.py",      title="KOSIS 통계 수집",     icon="🏢"),
@@ -99,6 +100,7 @@ with st.sidebar:
     st.page_link("pages/rtms_area_trend.py",  label="지역별 가격동향", icon="🗺️")
     st.page_link("pages/rtms_area_trend_mobile.py", label="지역별 가격동향(모바일)", icon="📱")
     st.page_link("pages/simulator.py",        label="보유 시뮬레이터", icon="🧮")
+    st.page_link("pages/market_link.py",      label="시장 연동 분석", icon="🔗")
     st.page_link("pages/rtms_fetch.py",       label="실거래가 수집",   icon="🏛️")
     st.page_link("pages/kosis_trend.py",      label="인구·주택·경제 통계", icon="📈")
     st.page_link("pages/kosis_fetch.py",      label="KOSIS 통계 수집",     icon="🏢")

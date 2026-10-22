@@ -33,6 +33,7 @@ naver_land/
 ├── rawdata.py               # 네이버 부동산 raw 텍스트 붙여넣기 → 파싱 → DB 저장 (루트, pages/ 아님)
 ├── db.py                    # SQLite CRUD 전체, Google Sheets 백업/복원
 ├── utils_market.py          # 파생지표(평당가·연식·층) + 대출/손익분기/시장신호 계산 (순수 함수)
+├── utils_analysis.py        # 시장 연동 분석 통계 엔진 (시차상관·베타·전이경로·유사국면)
 ├── utils_ecos.py            # 한국은행 ECOS Open API 클라이언트
 ├── utils_graph.py           # build_df/make_daily/render_sidebar/compute_score
 ├── utils_uid.py             # make_uid() — 매물 uid 생성 (SHA-1)
@@ -112,7 +113,7 @@ python setup_fonts.py && streamlit run app.py --server.port $PORT --server.addre
 
 **`app.py`** — 폰트 초기화(`setup_fonts.main()`), DB 초기화(`init_db()`), Google Sheets 자동 복원, 네비게이션 설정.
 
-현재 활성화된 메뉴 (8개) — 국토부 실거래가 기반 화면이 중심이고, 네이버 매물 기반
+현재 활성화된 메뉴 (9개) — 국토부 실거래가 기반 화면이 중심이고, 네이버 매물 기반
 화면(graph_v2/graph_mobile/rawdata)은 메뉴에서 내려가 있다:
 ```python
 pg = st.navigation([
@@ -120,6 +121,7 @@ pg = st.navigation([
     st.Page("pages/rtms_area_trend.py",  title="지역별 가격동향", icon="🗺️"),
     st.Page("pages/rtms_area_trend_mobile.py", title="지역별 가격동향(모바일)", icon="📱"),
     st.Page("pages/simulator.py",        title="보유 시뮬레이터", icon="🧮"),
+    st.Page("pages/market_link.py",      title="시장 연동 분석", icon="🔗"),
     st.Page("pages/rtms_fetch.py",       title="실거래가 수집",   icon="🏛️"),
     st.Page("pages/kosis_trend.py",      title="인구·주택·경제 통계", icon="📈"),
     st.Page("pages/kosis_fetch.py",      title="KOSIS 통계 수집",     icon="🏢"),
@@ -135,6 +137,7 @@ pg = st.navigation([
 | `rtms_area_trend.py` | ✅ 활성 | 구/동 단위 가격동향 비교 + KOSIS 상관분석 (PC) |
 | `rtms_area_trend_mobile.py` | ✅ 활성 | 구/동 단위 가격동향 비교 (모바일) |
 | `simulator.py` | ✅ 활성 | 보유 시나리오 시뮬레이터 — 대출 상환·손익분기·시장신호·평당가/연식/층 분석 |
+| `market_link.py` | ✅ 활성 | 시장 연동 분석 — 시차 교차상관·지역 베타·전이 경로·유사 국면 |
 | `rtms_fetch.py` | ✅ 활성 | 국토부 실거래가 수집 (매매·전월세) |
 | `kosis_trend.py` | ✅ 활성 | KOSIS 인구·주택·경제 통계 추이 |
 | `kosis_fetch.py` | ✅ 활성 | KOSIS 통계 수집 |
@@ -184,6 +187,21 @@ pg = st.navigation([
 | **`utils_auth.py`** | 비밀번호 인증 (현재 `require_auth()` 첫 줄 `return`으로 비활성화) |
 | **`utils_style.py`** | `inject_korean_font()` — 모든 페이지 최상단 호출 필수. Noto Sans KR + Plotly 전역 폰트 설정 |
 | **`setup_fonts.py`** | 앱 시작 시 1회 실행. `packages.txt`의 `fonts-nanum` 시스템 폰트 우선 사용, 없으면 Google Fonts에서 다운로드 |
+
+### 시장 연동 분석의 통계 원칙 (`utils_analysis.py`)
+
+이 앱의 표본은 짧다(실거래 월별 24~60개, KOSIS 연간 ~16개). 그래서 상관을 다룰 때
+아래 세 가지를 반드시 지킨다 — 어기면 숫자가 그럴듯하게 거짓말을 한다.
+
+1. **수준이 아니라 변화율로 잰다.** 추세를 가진 두 계열은 무관해도 상관이 높게 나온다.
+   36개월 모의실험에서 무관한 두 상승 계열의 |r|이 0.5를 넘을 확률이 **수준 91% vs 차분 0.3%**.
+2. **점추정만 주지 않는다.** 표본수와 신뢰구간을 항상 같이 낸다. n=36이면 진짜 r=0.5여도
+   95% 구간이 [0.21, 0.71]이라 '약함'과 '강함'을 구분할 수 없다.
+3. **시차 스캔에는 다중비교 보정을 적용한다.** ±12개월을 훑으면 25회 검정이라 가짜 양성이
+   쌓인다. 보정 없이는 무관한 계열끼리도 **68%** 확률로 '유의한 시차'가 나왔고,
+   Bonferroni 보정 후 **4%** 로 떨어졌다.
+
+회귀 예측 모델은 만들지 않는다 — n=36에 변수 5개면 과적합이 확정적이다.
 
 ### DB 스키마 (`db.py`)
 
