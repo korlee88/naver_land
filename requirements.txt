@@ -1,9 +1,12 @@
-streamlit
-pandas
-numpy
-plotly
-matplotlib
-requests
-openpyxl
-pyarrow
-python-dateutil
+# 버전 하한을 고정하는 이유: Streamlit이 폐기 API를 예고한 날짜가 지나면 조용히
+# 제거돼 배포된 앱 전체가 깨진다 (2026-10 실제 발생 — use_container_width 제거 추정).
+# 하한을 명시하면 코드가 쓰는 새 API(width=, st.html)가 없는 구버전이 설치되는 일도 막는다.
+streamlit>=1.66
+pandas>=2.2
+numpy>=1.26
+plotly>=5.20
+matplotlib>=3.8
+requests>=2.31
+# fetch_rtms.py가 dateutil.relativedelta를 직접 import한다
+# (pandas가 의존성으로 끌어오지만, 직접 쓰는 패키지는 명시한다)
+python-dateutil>=2.9

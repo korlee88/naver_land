@@ -660,7 +660,7 @@ try:
         df["min_man"] = (df["min_man"] / 10000).round(2).astype(str) + "억"
         df["max_man"] = (df["max_man"] / 10000).round(2).astype(str) + "억"
         df.columns = ["단지명", "거래건수", "시작", "종료", "최저가", "최고가"]
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
     else:
         st.caption("아직 수집된 실거래가가 없습니다. 위에서 수집을 시작하세요.")
 except Exception as e:
@@ -711,7 +711,7 @@ if _usage["ratio"] >= 0.8:
 b1, b2, b3, b4 = st.columns(4)
 
 with b1:
-    if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=(n_trade == 0 and n_jeonse == 0)):
+    if st.button("☁️ 지금 시트로 백업", width="stretch", disabled=(n_trade == 0 and n_jeonse == 0)):
         with st.spinner("구글시트로 백업 중..."):
             t, j, err = push_rtms_to_sheet()
         if err:
@@ -720,7 +720,7 @@ with b1:
             st.success(f"백업 완료 — 매매 {t}건 / 전월세 {j}건")
 
 with b2:
-    if st.button("📥 시트에서 복원", use_container_width=True):
+    if st.button("📥 시트에서 복원", width="stretch"):
         with st.spinner("구글시트에서 복원 중..."):
             t, j = restore_rtms_from_sheet()
         if t > 0 or j > 0:
@@ -730,7 +730,7 @@ with b2:
             st.warning("복원된 데이터가 없습니다. 시트가 비어있거나 이미 모두 DB에 있는 데이터입니다.")
 
 with b3:
-    if st.button("🔍 시트 저장 상태 확인", use_container_width=True):
+    if st.button("🔍 시트 저장 상태 확인", width="stretch"):
         with st.spinner("구글시트 조회 중..."):
             for sheet in ("RTMS매매", "RTMS전월세"):
                 try:
@@ -759,4 +759,4 @@ with b3:
                     st.error(f"**{sheet}** 탭 조회 실패: {e}")
 
 with b4:
-    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, use_container_width=True)
+    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, width="stretch")

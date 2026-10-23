@@ -173,7 +173,7 @@ with comp_col:
         fig_overlay.update_yaxes(title_text="변동률 (시작주=100)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
     else:
         fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
-    st.plotly_chart(fig_overlay, use_container_width=True, config=CHART_CONFIG)
+    st.plotly_chart(fig_overlay, width="stretch", config=CHART_CONFIG)
 
 with synth_col:
     st.markdown("**종합 분석 — 가격 × 인구·주택·경제**")
@@ -198,7 +198,7 @@ with synth_col:
         if fig_synth is None:
             st.caption("지수 비교에 필요한 연도별 데이터가 부족합니다.")
         else:
-            st.plotly_chart(fig_synth, use_container_width=True, config=CHART_CONFIG, key="area_synth_chart")
+            st.plotly_chart(fig_synth, width="stretch", config=CHART_CONFIG, key="area_synth_chart")
         st.caption("기준연도=100 지수 · 아파트 외 주택유형 포함(인허가실적) · 아래 '지역 통계'에서 지역별 상세와 상관계수를 볼 수 있습니다.")
 
 st.divider()
@@ -254,13 +254,13 @@ with st.expander("📊 지역별 상세 차트 — 매매·전세 (연도 요약
                     tab_sale, tab_jeonse = st.tabs(["📈 매매", "🏠 전세"])
                     with tab_sale:
                         st.caption("매매가(억) · 주 단위")
-                        st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"price_sale_{region}")
+                        st.plotly_chart(fig, width="stretch", config=CHART_CONFIG, key=f"price_sale_{region}")
                     with tab_jeonse:
                         st.caption("전세가(억) · 월 단위")
-                        st.plotly_chart(fig_j, use_container_width=True, config=CHART_CONFIG, key=f"price_jeonse_{region}")
+                        st.plotly_chart(fig_j, width="stretch", config=CHART_CONFIG, key=f"price_jeonse_{region}")
                 else:
                     st.caption("매매가(억) · 주 단위")
-                    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"price_sale_{region}")
+                    st.plotly_chart(fig, width="stretch", config=CHART_CONFIG, key=f"price_sale_{region}")
 
 # ── 지역 통계 (인구·주택·경제) ───────────────────────────────
 with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS) · 가격과의 상관관계", expanded=False):
@@ -311,7 +311,7 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS) · �
                         st.caption("지수 비교에 필요한 연도별 데이터가 부족합니다.")
                     else:
                         st.plotly_chart(
-                            fig_idx, use_container_width=True,
+                            fig_idx, width="stretch",
                             config=CHART_CONFIG,
                             key=f"kosis_idx_{region}",
                         )
@@ -330,7 +330,7 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS) · �
             })
         if corr_summary_rows:
             st.markdown("**📎 종합 — 선택 지역 전체의 평균 상관관계**")
-            st.dataframe(pd.DataFrame(corr_summary_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(corr_summary_rows), width="stretch", hide_index=True)
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
@@ -369,4 +369,4 @@ for region in selected_regions:
 
 if summary_rows:
     summary_df = pd.DataFrame(summary_rows).sort_values("매매평균(억)")
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    st.dataframe(summary_df, width="stretch", hide_index=True)

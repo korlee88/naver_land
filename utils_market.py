@@ -138,7 +138,7 @@ def jeonse_ratio_series(trade: pd.DataFrame, jeonse: pd.DataFrame) -> pd.DataFra
 
     t_avg = trade.groupby("ym")["price_man"].mean()
     j_avg = j.groupby("ym")["deposit_man"].mean()
-    merged = pd.concat([j_avg.rename("jeonse"), t_avg.rename("trade")], axis=1).dropna()
+    merged = pd.concat([j_avg.rename("jeonse"), t_avg.rename("trade")], axis=1, sort=False).dropna()
     if merged.empty:
         return pd.DataFrame(columns=cols)
     merged["ratio"] = (merged["jeonse"] / merged["trade"] * 100).round(1)

@@ -121,9 +121,9 @@ if _ks:
     rate_rows = kdf[kdf[name_col].astype(str).str.contains("금리", na=False)]
     if not rate_rows.empty:
         st.markdown("**금리 관련 지표 (현재값)**")
-        st.dataframe(rate_rows, use_container_width=True, hide_index=True)
+        st.dataframe(rate_rows, width="stretch", hide_index=True)
     with st.expander(f"전체 {len(kdf)}개 지표 보기"):
-        st.dataframe(kdf, use_container_width=True, hide_index=True)
+        st.dataframe(kdf, width="stretch", hide_index=True)
 
 # ── 2. 통계표 찾기 ────────────────────────────────────────────
 st.divider()
@@ -145,7 +145,7 @@ if st.button("🔍 통계표 검색"):
 if st.session_state.get("ecos_tables"):
     tdf = pd.DataFrame(st.session_state["ecos_tables"])
     keep = [c for c in ("STAT_CODE", "STAT_NAME", "CYCLE", "SRCH_YN", "ORG_NAME") if c in tdf.columns]
-    st.dataframe(tdf[keep] if keep else tdf, use_container_width=True, hide_index=True)
+    st.dataframe(tdf[keep] if keep else tdf, width="stretch", hide_index=True)
 
 # ── 3. 수집 ───────────────────────────────────────────────────
 st.divider()
@@ -247,7 +247,7 @@ if cur.empty:
     st.caption("아직 수집된 금리 데이터가 없습니다.")
 else:
     st.dataframe(cur.rename(columns={"stat_code": "통계표", "item_name": "항목", "unit_name": "단위"}),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
 
     labels = (series["stat_code"] + " · " + series["item_name"].fillna("")).unique().tolist()
     picked = st.multiselect("차트로 볼 항목", labels, default=labels[:3])
@@ -268,7 +268,7 @@ else:
                           hovermode="x unified",
                           xaxis=dict(showgrid=True, gridcolor="#f0f0f0", fixedrange=True),
                           yaxis=dict(showgrid=True, gridcolor="#f0f0f0", fixedrange=True))
-        st.plotly_chart(fig, use_container_width=True,
+        st.plotly_chart(fig, width="stretch",
                         config={"displayModeBar": False, "scrollZoom": False}, key="ecos_chart")
 
 # ── 5. 백업/복원 ──────────────────────────────────────────────
@@ -283,12 +283,12 @@ st.caption(
 
 b1, b2, b3 = st.columns(3)
 with b1:
-    if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=cur.empty):
+    if st.button("☁️ 지금 시트로 백업", width="stretch", disabled=cur.empty):
         with st.spinner("백업 중..."):
             n, err = push_ecos_to_sheet()
         st.error(f"백업 실패: {err}") if err else st.success(f"백업 완료 — {n}건")
 with b2:
-    if st.button("📥 시트에서 복원", use_container_width=True):
+    if st.button("📥 시트에서 복원", width="stretch"):
         with st.spinner("복원 중..."):
             n, err = restore_ecos_from_sheet()
         if n > 0:
@@ -299,4 +299,4 @@ with b2:
         else:
             st.warning("복원된 데이터가 없습니다 (시트가 비었거나 이미 모두 있음).")
 with b3:
-    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, use_container_width=True)
+    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, width="stretch")

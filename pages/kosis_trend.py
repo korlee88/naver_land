@@ -159,7 +159,7 @@ fig.update_layout(
 )
 fig.update_xaxes(dtick=1, showgrid=True, gridcolor="#f0f0f0", fixedrange=True)
 fig.update_yaxes(title_text=unit_name, showgrid=True, gridcolor="#f0f0f0", fixedrange=True, tickformat=",")
-st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
+st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "scrollZoom": False, "staticPlot": False})
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
@@ -182,4 +182,4 @@ for region in selected_regions:
     summary_rows.append(row)
 
 if summary_rows:
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
