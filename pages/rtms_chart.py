@@ -187,14 +187,14 @@ with st.expander("🔍 데이터 진단 — 실제로 얼마나 수집됐는지 
     reg = (df_all.groupby("lawd_cd").size().reset_index(name="건수"))
     reg["지역"] = reg["lawd_cd"].apply(lawd_label)
     st.dataframe(reg[["지역", "건수"]].sort_values("건수", ascending=False),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
 
     st.markdown("**동(읍·면)별 매매 건수** — 특정 동만 안 보일 때 확인용")
     dong_cnt = (df_all.assign(지역=df_all["lawd_cd"].apply(lawd_label))
                 .groupby(["지역", "dong"]).size().reset_index(name="건수")
                 .rename(columns={"dong": "동(읍·면)"}))
     st.dataframe(dong_cnt.sort_values(["지역", "건수"], ascending=[True, False]),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
     st.caption(
         "찾는 동이 이 표에 아예 없으면 국토부 API 응답 자체에 해당 동 거래가 없었다는 뜻입니다 "
         "(신축 단지는 등기 완료 전까지 실거래가 신고가 안 잡힐 수 있고, 수집 개월 수가 짧으면 "
@@ -428,7 +428,7 @@ for row in rows_layout:
                     j_sub = j_sub[j_sub["ym"] >= cutoff]
 
             fig = make_chart(stats, cname, color, j_sub)
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
 # ── 요약 테이블 ────────────────────────────────────────────────
 st.divider()
@@ -466,4 +466,4 @@ for cname in selected_with_data:
 
 if summary_rows:
     summary_df = pd.DataFrame(summary_rows).sort_values("최저(억)")
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    st.dataframe(summary_df, width="stretch", hide_index=True)

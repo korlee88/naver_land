@@ -215,7 +215,7 @@ else:
         yaxis2=dict(title="월 납입(만원)", overlaying="y", side="right", showgrid=False, fixedrange=True),
         xaxis=dict(title="회차(개월)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True),
     )
-    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="sim_loan")
+    st.plotly_chart(fig, width="stretch", config=CHART_CONFIG, key="sim_loan")
     st.caption(
         "잔액(왼쪽 축)과 월 납입액(오른쪽 축)은 단위가 달라 축을 나눴습니다 — 두 선의 "
         "높낮이를 서로 비교하지 마시고, 각자의 기울기만 보세요."
@@ -248,7 +248,7 @@ else:
     rs = mk.rate_scenarios(principal_won, months, [r for r in cand if r > 0],
                            kind="graduated" if repay_kind == "원리금체증식" else "equal",
                            annual_growth_pct=growth or 0.0, current_rate=rate)
-    st.dataframe(rs, use_container_width=True, hide_index=True)
+    st.dataframe(rs, width="stretch", hide_index=True)
     st.caption(
         f"현재 금리 **{rate:.2f}%** 기준으로 비교한 값입니다. 고정금리라도 "
         "시장금리가 충분히 내려가면 갈아타기를 검토할 근거가 됩니다 "
@@ -263,7 +263,7 @@ st.subheader("3. 가격 시나리오별 손익")
 
 sc = mk.equity_scenarios(purchase, market_price, balance_at,
                          held_interest=held_interest, acq_tax_rate=acq_rate, broker_rate=brk_rate)
-st.dataframe(sc, use_container_width=True, hide_index=True)
+st.dataframe(sc, width="stretch", hide_index=True)
 st.caption(
     f"**{held_years}년 보유** 기준 — 그동안 낸 이자 **{held_interest:,.0f}만원**을 비용에 넣고, "
     f"그 시점 대출잔액 **{balance_at / 10000:.2f}억**을 갚는다고 가정했습니다. "
@@ -352,6 +352,6 @@ for tab, col, label in zip(tabs, ["age_bucket", "floor_bucket", "area_label"], [
             yaxis=dict(title="평당가(만원)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True),
             xaxis=dict(fixedrange=True),
         )
-        st.plotly_chart(fig_b, use_container_width=True, config=CHART_CONFIG, key=f"sim_prof_{col}")
+        st.plotly_chart(fig_b, width="stretch", config=CHART_CONFIG, key=f"sim_prof_{col}")
         st.dataframe(prof.rename(columns={col: label, "평균": "평균(만원/평)", "중앙값": "중앙값(만원/평)"}),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)

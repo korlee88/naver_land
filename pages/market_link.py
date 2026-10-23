@@ -140,7 +140,7 @@ with tab1:
                 yaxis=dict(title="상관계수(변화율 기준)", showgrid=True,
                            gridcolor="#f0f0f0", fixedrange=True, range=[-1, 1]),
             )
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key="ml_scan")
+            st.plotly_chart(fig, width="stretch", config=CHART_CONFIG, key="ml_scan")
             st.caption("진한 막대 = 다중비교 보정 후에도 0이 아니라고 말할 수 있는 시차")
 
             if best_adj:
@@ -173,7 +173,7 @@ with tab1:
                     {"방식": "변화율(차분)", "r": None if ch["r"] is None else round(ch["r"], 3),
                      "표본": ch["n"], "유의": ch["significant"]},
                 ])
-                st.dataframe(cmp_df, use_container_width=True, hide_index=True)
+                st.dataframe(cmp_df, width="stretch", hide_index=True)
                 st.caption(
                     "둘 다 추세를 가지면 수준상관은 관계가 없어도 높게 나옵니다. "
                     "36개월 모의실험에서 무관한 두 상승 계열의 |r|이 0.5를 넘을 확률이 "
@@ -207,7 +207,7 @@ with tab2:
 
             if b["beta"] is not None:
                 tc, bc = A.to_changes(price), A.to_changes(bench)
-                mg = pd.concat([tc.rename("t"), bc.rename("b")], axis=1).dropna()
+                mg = pd.concat([tc.rename("t"), bc.rename("b")], axis=1, sort=False).dropna()
                 fig2 = go.Figure()
                 fig2.add_trace(go.Scatter(
                     x=mg["b"] * 100, y=mg["t"] * 100, mode="markers",
@@ -226,7 +226,7 @@ with tab2:
                     legend=dict(orientation="h", x=0, y=1.12, font=dict(size=11)),
                     xaxis=dict(title="시장 월간 변화율(%)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True),
                     yaxis=dict(title=f"{region} 월간 변화율(%)", showgrid=True, gridcolor="#f0f0f0", fixedrange=True))
-                st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG, key="ml_beta")
+                st.plotly_chart(fig2, width="stretch", config=CHART_CONFIG, key="ml_beta")
                 st.caption(
                     f"벤치마크: {', '.join(bench_sel)} · R²는 시장으로 설명되는 비율입니다 — "
                     "낮으면 내 지역이 시장과 따로 논다는 뜻이고, 그만큼 지역 고유 요인"
@@ -259,7 +259,7 @@ with tab3:
     if chain.empty:
         st.info("단계를 구성할 데이터가 부족합니다.")
     else:
-        st.dataframe(chain, use_container_width=True, hide_index=True)
+        st.dataframe(chain, width="stretch", hide_index=True)
         weak = chain[~chain["유의"]]
         if not weak.empty:
             st.info(
@@ -309,7 +309,7 @@ with tab4:
             show = matches.copy()
             for col in ("시작", "종료"):
                 show[col] = pd.to_datetime(show[col]).dt.strftime("%Y-%m")
-            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.dataframe(show, width="stretch", hide_index=True)
             st.info(A.regime_summary(matches, horizon))
             st.caption(
                 "'거리'는 지표 구성이 얼마나 닮았는지입니다 — 0에 가까울수록 닮았고, "

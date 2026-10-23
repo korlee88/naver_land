@@ -47,7 +47,7 @@ def corr_with_ci(x: pd.Series, y: pd.Series, conf: float = 0.95) -> dict:
       significant는 신뢰구간이 0을 포함하지 않는지 — 'r이 크다'가 아니라
       '0이 아니라고 말할 수 있는가'가 표본이 작을 때 봐야 할 기준이다.
     """
-    df = pd.concat([pd.Series(x).rename("x"), pd.Series(y).rename("y")], axis=1).dropna()
+    df = pd.concat([pd.Series(x).rename("x"), pd.Series(y).rename("y")], axis=1, sort=False).dropna()
     n = len(df)
     empty = {"r": None, "n": n, "lo": None, "hi": None, "significant": False}
     if n < 4:
@@ -176,7 +176,7 @@ def regional_beta(target: pd.Series, benchmark: pd.Series, method: str = "auto")
     반환: {"beta", "lo", "hi", "r2", "n", "alpha"}  (alpha = 시장과 무관한 초과 변화)
     """
     t, b = to_changes(target, method), to_changes(benchmark, method)
-    df = pd.concat([t.rename("t"), b.rename("b")], axis=1).dropna()
+    df = pd.concat([t.rename("t"), b.rename("b")], axis=1, sort=False).dropna()
     n = len(df)
     empty = {"beta": None, "lo": None, "hi": None, "r2": None, "n": n, "alpha": None}
     if n < 5 or df["b"].std() == 0:

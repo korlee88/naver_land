@@ -10,7 +10,6 @@ from datetime import date
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 
 from utils_style import inject_korean_font
 from utils_area_trend import (
@@ -29,24 +28,26 @@ def _lock_page_zoom():
     모바일 브라우저는 페이지 전체에 대해 네이티브 핀치줌을 제공한다 — 차트를 확대하려던
     손가락이 페이지 전체를 확대해버려 "차트가 또 확대된다"는 불편으로 느껴진다.
     viewport meta에 user-scalable=no를 넣어 그 네이티브 핀치줌 자체를 막는다.
-    Streamlit은 <head>를 직접 조작할 API가 없어 컴포넌트 iframe에서 같은 오리진인
-    부모 문서(window.parent)의 meta 태그를 찾아 고쳐 쓴다."""
-    components.html(
+    Streamlit은 <head>를 직접 조작할 API가 없어 스크립트로 meta 태그를 고쳐 쓴다.
+
+    st.html은 iframe이 아니라 앱 문서에 그대로 주입되므로 document가 곧 앱 문서다
+    (components.html 시절엔 iframe 안이라 window.parent를 거쳐야 했다. 그 API는
+    2026-06-01자로 제거돼 st.html로 옮겼다)."""
+    st.html(
         """
         <script>
         try {
-            const doc = window.parent.document;
-            let m = doc.querySelector('meta[name="viewport"]');
+            let m = document.querySelector('meta[name="viewport"]');
             if (!m) {
-                m = doc.createElement('meta');
+                m = document.createElement('meta');
                 m.setAttribute('name', 'viewport');
-                doc.head.appendChild(m);
+                document.head.appendChild(m);
             }
             m.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
         } catch (e) {}
         </script>
         """,
-        height=0, width=0,
+        unsafe_allow_javascript=True,
     )
 
 
@@ -191,7 +192,7 @@ if compare_mode == "변동률(%)":
 else:
     fig_overlay.update_yaxes(ticksuffix="억", showgrid=True, gridcolor="#f0f0f0",
                               tickfont=dict(size=10), fixedrange=True)
-st.plotly_chart(fig_overlay, use_container_width=True, config=CHART_CONFIG)
+st.plotly_chart(fig_overlay, width="stretch", config=CHART_CONFIG)
 
 st.divider()
 
@@ -219,7 +220,7 @@ else:
     if fig_synth is None:
         st.caption("지수 비교에 필요한 연도별 데이터가 부족합니다.")
     else:
-        st.plotly_chart(fig_synth, use_container_width=True, config=CHART_CONFIG, key="am_synth_chart")
+        st.plotly_chart(fig_synth, width="stretch", config=CHART_CONFIG, key="am_synth_chart")
     st.caption("기준연도=100 지수 · 아파트 외 주택유형 포함(인허가실적)")
 
 st.divider()
@@ -266,13 +267,13 @@ with st.expander("📊 지역별 상세 — 매매·전세", expanded=len(select
             tab_sale, tab_jeonse = st.tabs(["📈 매매", "🏠 전세"])
             with tab_sale:
                 st.caption("매매가(억) · 주 단위")
-                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"m_sale_{region}")
+                st.plotly_chart(fig, width="stretch", config=CHART_CONFIG, key=f"m_sale_{region}")
             with tab_jeonse:
                 st.caption("전세가(억) · 월 단위")
-                st.plotly_chart(fig_j, use_container_width=True, config=CHART_CONFIG, key=f"m_jeonse_{region}")
+                st.plotly_chart(fig_j, width="stretch", config=CHART_CONFIG, key=f"m_jeonse_{region}")
         else:
             st.caption("매매가(억) · 주 단위")
-            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG, key=f"m_sale_{region}")
+            st.plotly_chart(fig, width="stretch", config=CHART_CONFIG, key=f"m_sale_{region}")
         st.divider()
 
 # ── 지역 통계 (인구·주택·경제, KOSIS) — 1열 ───────────────────
@@ -313,7 +314,7 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)", exp
             if fig_idx is None:
                 st.caption("지수 비교에 필요한 연도별 데이터가 부족합니다.")
             else:
-                st.plotly_chart(fig_idx, use_container_width=True, config=CHART_CONFIG, key=f"m_kosis_idx_{region}")
+                st.plotly_chart(fig_idx, width="stretch", config=CHART_CONFIG, key=f"m_kosis_idx_{region}")
             st.divider()
 
         corr_summary_rows = []
@@ -328,7 +329,7 @@ with st.expander("🏘️ 지역 통계 — 인구·주택·경제 (KOSIS)", exp
             })
         if corr_summary_rows:
             st.markdown("**📎 종합 상관관계**")
-            st.dataframe(pd.DataFrame(corr_summary_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(corr_summary_rows), width="stretch", hide_index=True)
 
 # ── 요약 표 ────────────────────────────────────────────────
 st.divider()
@@ -351,4 +352,4 @@ for region in selected_regions:
 
 if summary_rows:
     summary_df = pd.DataFrame(summary_rows).sort_values("매매평균(억)")
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    st.dataframe(summary_df, width="stretch", hide_index=True)

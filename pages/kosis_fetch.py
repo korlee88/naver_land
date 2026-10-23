@@ -305,7 +305,7 @@ try:
         df = pd.DataFrame([dict(r) for r in rows])
         df["category"] = df["category"].map(lambda c: CATEGORIES.get(c, {}).get("label", c))
         df.columns = ["카테고리", "행 수", "지역 수", "시작연도", "종료연도"]
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
     else:
         st.caption("아직 수집된 KOSIS 통계가 없습니다. 위에서 수집을 시작하세요.")
 except Exception as e:
@@ -339,7 +339,7 @@ st.caption(
 
 b1, b2, b3, b4 = st.columns(4)
 with b1:
-    if st.button("☁️ 지금 시트로 백업", use_container_width=True, disabled=(n_kosis == 0)):
+    if st.button("☁️ 지금 시트로 백업", width="stretch", disabled=(n_kosis == 0)):
         with st.spinner("구글시트로 백업 중..."):
             n, err = push_kosis_to_sheet()
         if err:
@@ -348,7 +348,7 @@ with b1:
             st.success(f"백업 완료 — {n}건")
 
 with b2:
-    if st.button("📥 시트에서 복원", use_container_width=True):
+    if st.button("📥 시트에서 복원", width="stretch"):
         with st.spinner("구글시트에서 복원 중..."):
             n, err = restore_kosis_from_sheet()
         if n > 0:
@@ -360,7 +360,7 @@ with b2:
             st.warning("복원된 데이터가 없습니다. 시트가 비어있거나 이미 모두 DB에 있는 데이터입니다.")
 
 with b3:
-    if st.button("🔍 시트 저장 상태 확인", use_container_width=True):
+    if st.button("🔍 시트 저장 상태 확인", width="stretch"):
         with st.spinner("구글시트 조회 중..."):
             try:
                 r = requests.get(GAS_URL, params={"token": GAS_TOKEN, "sheet_name": "KOSIS통계",
@@ -378,4 +378,4 @@ with b3:
                 st.error(f"조회 실패: {e}")
 
 with b4:
-    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, use_container_width=True)
+    st.link_button("📄 백업 시트 열기", BACKUP_SHEET_URL, width="stretch")
