@@ -29,40 +29,32 @@ Python(Streamlit) 단일 언어 프로젝트. Node/JS 빌드 체인 없음.
 
 ```
 naver_land/
-├── app.py                  # 진입점 — 폰트/DB 초기화, Sheets 자동복원, 네비게이션
-├── rawdata.py               # 네이버 부동산 raw 텍스트 붙여넣기 → 파싱 → DB 저장 (루트, pages/ 아님)
-├── db.py                    # SQLite CRUD 전체, Google Sheets 백업/복원
-├── utils_market.py          # 파생지표(평당가·연식·층) + 대출/손익분기/시장신호 계산 (순수 함수)
+├── app.py                   # 진입점 — 폰트/DB 초기화, Sheets 자동복원, 네비게이션
+├── db.py                    # SQLite CRUD, Google Sheets 백업/복원 (RTMS·KOSIS·ECOS)
+├── utils_area_trend.py      # 실거래 로드/집계/KOSIS 상관분석/차트 빌더 (페이지 공용)
+├── utils_market.py          # 파생지표(평당가·연식·층) + 대출/손익분기/시장신호 (순수 함수)
 ├── utils_analysis.py        # 시장 연동 분석 통계 엔진 (시차상관·베타·전이경로·유사국면)
 ├── utils_ecos.py            # 한국은행 ECOS Open API 클라이언트
-├── utils_graph.py           # build_df/make_daily/render_sidebar/compute_score
-├── utils_uid.py             # make_uid() — 매물 uid 생성 (SHA-1)
-├── utils_auth.py            # 비밀번호 인증 (현재 비활성화)
 ├── utils_style.py           # inject_korean_font() — 한글 폰트 전역 적용
 ├── setup_fonts.py           # 앱 시작 시 1회 실행되는 폰트 설치 스크립트
-├── fetch_naver.py           # 네이버 부동산 API 독립 실행형 수집 CLI (스케줄/수동 실행용)
-├── fetch_rtms.py            # 국토부 실거래가 독립 실행형 수집 CLI (스케줄/수동 실행용)
+├── fetch_rtms.py            # 국토부 실거래가 독립 실행형 수집 CLI (스케줄/대량 백필용)
 ├── pages/                   # Streamlit 멀티페이지 (app.py의 st.navigation 대상)
-│   ├── graph_v2.py          # 가격 추이 차트 (PC) — 활성
-│   ├── graph_mobile.py      # 가격 추이 차트 (모바일) — 활성
-│   ├── raw_manage.py        # RAW 데이터 배치 삭제/복원 — 활성
+│   ├── rtms_chart.py        # 실거래가 가격 추이 (매매·전세·전세가율)
+│   ├── rtms_area_trend.py   # 구/동 단위 가격동향 비교 + KOSIS 상관분석 (PC)
+│   ├── rtms_area_trend_mobile.py  # 구/동 단위 가격동향 비교 (모바일)
+│   ├── simulator.py         # 보유 시나리오 시뮬레이터
+│   ├── market_link.py       # 시장 연동 분석
 │   ├── rtms_fetch.py        # 국토부 실거래가 수집 UI (매매+전월세)
-│   ├── rtms_chart.py        # 실거래가 가격 추이 차트 (매매+전세)
-│   ├── naver_fetch.py       # 네이버 부동산 수집 UI
-│   ├── recommend.py         # 가중치 기반 매물 추천 — 메뉴 숨김
-│   ├── visited.py           # 방문 매물 수기 기록 — 메뉴 숨김
-│   ├── view_manage.py       # 동별 조망 등급 관리 — 메뉴 숨김
-│   ├── policy_news.py       # 평택 부동산 뉴스 RSS — 메뉴 숨김
-│   ├── loan_info.py         # 보금자리론 월 납입액 계산기 — 메뉴 숨김
-│   └── notebooklm.py        # 뉴스+매물 요약 → NotebookLM용 — 메뉴 숨김
+│   ├── kosis_trend.py       # KOSIS 인구·주택·경제 통계 추이
+│   ├── kosis_fetch.py       # KOSIS 통계 수집 UI
+│   └── ecos_fetch.py        # 한국은행 ECOS 금리 수집 UI
 ├── gas/Code.gs               # Google Apps Script 소스 (참고용 — 실배포본은 스프레드시트 편집기)
 ├── .streamlit/config.toml    # Streamlit 서버 설정
 ├── requirements.txt / packages.txt   # Python 의존성 / apt 시스템 패키지
-├── Procfile / railway.toml   # Railway 배포 설정 (현재 미사용, 재활성화 참고용으로 보관)
 └── backup/, out/              # 로컬 산출물 디렉토리 — .gitignore 대상, 커밋 금지
 ```
 
-숨겨진 `pages/*.py`는 파일이 존재하므로 `app.py`의 `st.navigation()`에 추가하면 즉시 재활성화 가능 — 이 때문에 "미사용"으로 보여도 삭제 대상이 아니다.
+모든 페이지가 `app.py`의 `st.navigation()`에 올라가 있다 — 숨김 페이지는 없다.
 
 ---
 
@@ -80,25 +72,17 @@ pip install -r requirements.txt
 
 **독립 실행형 수집 CLI (앱 UI와 별개로 실제 운용 중):**
 ```bash
-python fetch_naver.py --complex 110834 "평택센트럴자이 2단지"
 python fetch_rtms.py --key YOUR_API_KEY --months 24
 ```
-- `pages/naver_fetch.py`·`pages/rtms_fetch.py`(앱 내 UI)와 기능은 겹치지만, 스케줄 실행이나 대량 백필처럼 UI 없이 돌릴 때 이 CLI를 그대로 쓴다. 삭제하지 말 것.
+- `pages/rtms_fetch.py`(앱 내 UI)와 기능은 겹치지만, 스케줄 실행이나 대량 백필처럼 UI 없이 돌릴 때 이 CLI를 쓴다.
 
 **배포 (Streamlit Community Cloud — 현재 기본, 무료):**
 - https://share.streamlit.io 에서 GitHub 리포(`korlee88/naver_land`) 연결
 - Main file: `app.py`
 - 시스템 패키지: `packages.txt`에 `fonts-nanum` 명시 → 자동 설치
 - Secrets (대시보드 → Settings → Secrets):
-  - `AUTO_RESTORE_SHEET = "시트명"` — 콜드 스타트 시 Google Sheets에서 자동 복원
   - `DB_PATH` 미설정 시 `/tmp/naver_land.db` 사용 (ephemeral, 재시작마다 초기화)
 - `.streamlit/config.toml` — `headless=true`, `enableCORS=false` 설정
-
-**배포 (Railway — 유료, 현재 미사용):**
-```
-python setup_fonts.py && streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-```
-- `Procfile`, `railway.toml` 파일이 레포에 남아 있음 (재활성화 시 참고)
 
 테스트 및 린팅 설정 없음.
 
@@ -113,8 +97,7 @@ python setup_fonts.py && streamlit run app.py --server.port $PORT --server.addre
 
 **`app.py`** — 폰트 초기화(`setup_fonts.main()`), DB 초기화(`init_db()`), Google Sheets 자동 복원, 네비게이션 설정.
 
-현재 활성화된 메뉴 (9개) — 국토부 실거래가 기반 화면이 중심이고, 네이버 매물 기반
-화면(graph_v2/graph_mobile/rawdata)은 메뉴에서 내려가 있다:
+현재 활성화된 메뉴 (9개) — 전부 국토부 실거래가·공공통계 기반이다:
 ```python
 pg = st.navigation([
     st.Page("pages/rtms_chart.py",       title="가격 추이",       icon="📊", default=True),
@@ -142,49 +125,12 @@ pg = st.navigation([
 | `kosis_trend.py` | ✅ 활성 | KOSIS 인구·주택·경제 통계 추이 |
 | `kosis_fetch.py` | ✅ 활성 | KOSIS 통계 수집 |
 | `ecos_fetch.py` | ✅ 활성 | 한국은행 ECOS 금리 수집 (연결 테스트·통계표 검색 포함) |
-| `graph_v2.py` | 💤 메뉴 숨김 | 네이버 매물 기반 단지별 가격 추이 (PC) |
-| `graph_mobile.py` | 💤 메뉴 숨김 | 네이버 매물 기반 가격 추이 (모바일) |
-| `raw_manage.py` | 💤 메뉴 숨김 | 매물 배치 삭제/복원, 데이터 관리 |
-| `naver_fetch.py` | 💤 메뉴 숨김 | 네이버 부동산 수집 UI |
-| `recommend.py` | 💤 메뉴 숨김 | 가중치 기반 매물 점수 추천 |
-| `visited.py` | 💤 메뉴 숨김 | 방문 매물 수기 기록 |
-| `view_manage.py` | 💤 메뉴 숨김 | 동별 조망(뻥뷰) 등급 관리 |
-| `policy_news.py` | 💤 메뉴 숨김 | 평택 부동산 뉴스 RSS |
-| `loan_info.py` | 💤 메뉴 숨김 | 보금자리론 월 납입액 계산기 |
-| `notebooklm.py` | 💤 메뉴 숨김 | 뉴스+매물 요약 → NotebookLM용 |
-
-`rawdata.py` (루트, pages/ 아님) — 네이버 부동산 raw 텍스트 붙여넣기 → 정규식 파싱 → DB 저장.
-
-숨겨진 페이지들은 파일이 존재하므로 `app.py`의 `st.navigation()`에 추가하면 즉시 재활성화 가능.
-
-### graph_v2.py 차트 구성
-
-- **2열 레이아웃** — `COLS_PER_ROW = 2`, 중상층(11층 이상) 기준 트렌드
-- **Y축 자동 계산** — 데이터 최댓값+0.2억 / 최솟값-0.2억으로 초기화; 단지 변경 시 리셋
-- **컨트롤 1행 배치** — Y 최솟값·최댓값 입력 + 기간 버튼(1주~2달)을 한 행으로 압축
-- **차트 트레이스** (`make_subplots(secondary_y=True)` 사용):
-  - 최고~최저 범위 밴드 (연파랑 채우기, `fill="tonexty"`)
-  - 최고가 선 (연빨강), 평균가 점선 (회색), 최저가 선 (파랑, 굵게)
-  - 추세(7일) 점선 (보라) — 최저가 7일 이동평균 (`min_7avg`)
-  - 급락 마커 (빨간 역삼각형, `is_drop` 기준)
-  - 매물 수량 막대 (보조 Y축 오른쪽, 회색 반투명)
-- **고정 범위** — `fixedrange=True` (드래그/줌 비활성화, 호버만 허용)
-- **기본 단지 선택** — 4개
-
-### graph_mobile.py 차트 구성
-
-- graph_v2.py와 동일한 트레이스 구성 (7일 추세선 제외)
-- 높이 280px, `st.slider`로 Y축 범위 조절, `st.radio(horizontal=True)`로 기간 선택
-- 모든 축 `fixedrange=True`
 
 ### Core Modules
 
 | 모듈 | 역할 |
 |---|---|
 | **`db.py`** | 모든 SQLite CRUD. `upsert_listing_and_history()`가 주요 쓰기 경로 |
-| **`utils_graph.py`** | `build_df()` (DB → DataFrame), `make_daily()` (일별 집계), `render_sidebar()` (공통 필터), `compute_score()` / `get_badges()` (추천 점수) |
-| **`utils_uid.py`** | `make_uid()` — SHA-1(단지명, 동, 평형, 거래유형, 방향). 층은 제외 |
-| **`utils_auth.py`** | 비밀번호 인증 (현재 `require_auth()` 첫 줄 `return`으로 비활성화) |
 | **`utils_style.py`** | `inject_korean_font()` — 모든 페이지 최상단 호출 필수. Noto Sans KR + Plotly 전역 폰트 설정 |
 | **`setup_fonts.py`** | 앱 시작 시 1회 실행. `packages.txt`의 `fonts-nanum` 시스템 폰트 우선 사용, 없으면 Google Fonts에서 다운로드 |
 
@@ -207,45 +153,32 @@ pg = st.navigation([
 
 | 테이블 | 역할 |
 |---|---|
-| `listings` | 매물 최신 상태 (uid PRIMARY KEY) |
-| `price_history` | 가격/확인일 변동 이력 (listings 삭제 시 CASCADE) |
-| `deleted_uids` | 삭제된 uid 블랙리스트 (재입력 차단) |
-| `visited_properties` | 방문 매물 수기 기록 |
-| `view_scores` | 동별 조망 등급 (S/A/B/C, 층수 조건) |
-| `presets` | 추천 페이지 가중치 프리셋 (슬롯 0~2) |
-
-### `make_daily()` 반환 컬럼
-
-```python
-d2 = make_daily(dfc, drop_th=0.1)
-# uploadday, min_eok, max_eok, avg_eok, n, min_7avg, is_drop
-```
-
-- `n` — 실제 데이터가 있는 날의 매물 건수 (forward-fill 된 날은 0)
-- `min_7avg` — `.rolling(7, min_periods=3).mean().shift(1)` (전일 기준 7일 평균, 급락 감지용)
-- `is_drop` — `(min_eok - min_7avg) <= -drop_th`
+| `rtms_transactions` | 국토부 아파트 매매 실거래 |
+| `rtms_jeonse` | 국토부 아파트 전월세 실거래 (`pages/rtms_fetch.py`가 생성) |
+| `kosis_stats` | KOSIS 인구·주택 인허가·사업자 통계 (연 단위) |
+| `ecos_stats` | 한국은행 ECOS 금리 시계열 |
 
 ### 데이터 흐름
 
 ```
-rawdata.py  ← 사용자 raw 텍스트 붙여넣기
-    → 정규식 파싱 (단지명·동·평형·층·방향·가격·확인매물·메모)
-    → make_uid() → SHA-1 uid 생성
-    → db.upsert_listing_and_history()
-        → listings INSERT/UPDATE
-        → 가격·확인일 변경 시 price_history 추가
+pages/rtms_fetch.py  ← 국토부 실거래가 API (매매·전월세)
+pages/kosis_fetch.py ← KOSIS 인구·주택·경제 통계
+pages/ecos_fetch.py  ← 한국은행 ECOS 금리
+    → SQLite (rtms_transactions / rtms_jeonse / kosis_stats / ecos_stats)
+    → 구글시트 자동 백업 (Apps Script 엔드포인트)
+    → 앱 재시작 시 app.py가 자동 복원
 
-graph_v2.py / graph_mobile.py
-    → build_df() : listings JOIN price_history → eok(억) 파싱
-    → make_daily() : uploadday 기준 일별 집계
-    → Plotly 차트 렌더링 (make_subplots, secondary_y)
+utils_area_trend.load_data()  : DB → DataFrame (+ build_year·floor)
+utils_market.add_derived()    : 평당가·연식·층·평형 라벨 부착
+→ rtms_chart / rtms_area_trend / simulator / market_link 가 소비
 ```
 
 ### Google Sheets 연동
 
-- `db.restore_from_sheet(sheet_name)` — Google Apps Script 엔드포인트(`GAS_URL`)로 GET 요청 → 시트 데이터를 DB에 복원
-- 복원 시 원본 `seen_at`(날짜) 보존하여 히스토리 유지
-- `AUTO_RESTORE_SHEET` 환경변수가 있고 DB가 비어있을 때 `app.py`에서 자동 호출
+- `push_*_to_sheet()` / `restore_*_from_sheet()` — Apps Script 엔드포인트(`GAS_URL`)로 RTMS·KOSIS·ECOS를 백업/복원
+- 백업은 매번 DB 전체 스냅샷 덮어쓰기. 대상 스프레드시트는 `BACKUP_SHEET_ID` 한 곳으로 모은다
+- 앱이 콜드 스타트하면 `app.py`가 빈 테이블을 감지해 자동 복원
+- 구글시트는 통합문서당 1천만 셀 한도가 있어 `backup_sheet_usage()`로 사용률을 상시 표시한다
 - GAS 스크립트 소스는 `gas/Code.gs`에 참고용으로 보관 (실제 배포본은 구글 스프레드시트의 Apps Script 에디터에 있음 — 수정 시 두 곳 모두 갱신)
 
 ### 환경변수
@@ -253,7 +186,6 @@ graph_v2.py / graph_mobile.py
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `DB_PATH` | `/tmp/naver_land.db` | SQLite 파일 경로 |
-| `AUTO_RESTORE_SHEET` | (없음) | 콜드 스타트 시 복원할 Google Sheets 시트명 |
 | `KOSIS_API_KEY` | (없음) | KOSIS Open API 인증키 (kosis.kr/openapi, 자동승인) |
 | `ECOS_API_KEY` | (없음) | 한국은행 ECOS Open API 인증키 (ecos.bok.or.kr/api, 자동승인·1일 내 활성화) |
 | `RTMS_API_KEY` | (없음) | 국토부 실거래가 일반 인증키. **매매·전월세 공통 1개** (계정 단위 키). Streamlit Secrets에 넣으면 `pages/rtms_fetch.py`가 `st.secrets`→환경변수 순으로 읽어 입력칸에 자동 채움 |
